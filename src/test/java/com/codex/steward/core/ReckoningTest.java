@@ -199,4 +199,17 @@ public class ReckoningTest
 		assertTrue(r.getSpent().isEmpty());
 		assertEquals(1, r.getKept().size());
 	}
+
+	@Test
+	public void fingerprintChangesOnlyWithWhatIsShown()
+	{
+		Memory memory = new Memory();
+		Map<Integer, Long> bank = bank(BAT_BONES, 3, OLD_BOOT, 1);
+		memory.observeBank(bank, 100);
+		boolean[] done = {true, true, false, true};
+		long a = reckon(memory, bank, Collections.emptySet(), done, 100).fingerprint();
+		assertEquals(a, reckon(memory, bank, Collections.emptySet(), done, 100).fingerprint());
+		assertTrue(a != reckon(memory, bank(BAT_BONES, 2, OLD_BOOT, 1), Collections.emptySet(), done, 100).fingerprint());
+		assertTrue(a != reckon(memory, bank, Collections.emptySet(), new boolean[4], 100).fingerprint());
+	}
 }

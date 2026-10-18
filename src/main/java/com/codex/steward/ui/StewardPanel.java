@@ -126,7 +126,7 @@ public class StewardPanel extends PluginPanel
 	{
 		if (reckoning == null)
 		{
-			crest.update(player, null, state == State.LOGGED_OUT ? "Log in to take stock" : "Open your bank to take stock", null, alch);
+			crest.update(player, null, state == State.LOGGED_OUT ? "Log in to take stock" : "Open your bank once", null, alch);
 			return;
 		}
 		String status = state == State.LOGGED_OUT ? "Logged out, bank as last seen" : null;

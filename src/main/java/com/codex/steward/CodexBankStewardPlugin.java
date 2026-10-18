@@ -136,6 +136,8 @@ public class CodexBankStewardPlugin extends Plugin
 	private boolean progressRead;
 	private int ticks;
 	private int lastProgressRead = -PROGRESS_TICKS;
+	/** What the panel was last handed, so an unchanged reckoning is not drawn again. */
+	private String lastPublished;
 
 	@Provides
 	CodexBankStewardConfig provideConfig(ConfigManager configManager)
@@ -147,6 +149,7 @@ public class CodexBankStewardPlugin extends Plugin
 	protected void startUp()
 	{
 		catalog = loadCatalog();
+		lastPublished = null;
 		for (Quest quest : Quest.values())
 		{
 			quests.put(quest.name(), quest);
@@ -290,6 +293,15 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			marks.setEnabled(config.bankMarks());
 			reckonDirty = true;
+			// No ticks run while logged out, so the panel is redrawn here.
+			clientThread.invokeLater(() ->
+			{
+				if (memory != null && client.getGameState() != GameState.LOGGED_IN)
+				{
+					reckon();
+					publish();
+				}
+			});
 		}
 	}
 
@@ -578,8 +590,14 @@ public class CodexBankStewardPlugin extends Plugin
 		String name = loggedIn && player != null ? player.getName() : null;
 		StewardPanel.State state = !loggedIn ? StewardPanel.State.LOGGED_OUT
 			: shown == null ? StewardPanel.State.WAITING_FOR_BANK : StewardPanel.State.READY;
-		Map<Integer, String> shownNames = new HashMap<>(names);
 		boolean alch = byAlchemy();
+		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + state + "|" + name + "|" + alch;
+		if (key.equals(lastPublished))
+		{
+			return;
+		}
+		lastPublished = key;
+		Map<Integer, String> shownNames = new HashMap<>(names);
 		if (target != null)
 		{
 			SwingUtilities.invokeLater(() -> target.update(shown, shownNames, name, state, alch));

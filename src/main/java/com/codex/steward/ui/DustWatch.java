@@ -66,7 +66,8 @@ class DustWatch extends JComponent
 		g.draw(track);
 
 		g.setColor(Theme.TEXT_FAINT);
-		g.drawString(Ui.clip("Dust is called at " + needed + " days.", small, bw), bx, h - 9);
+		long left = Math.max(0, needed - watched);
+		g.drawString(Ui.clip(left == 1 ? "First dust can show tomorrow." : "First dust can show in " + left + " days.", small, bw), bx, h - 9);
 		g.dispose();
 	}
 }

@@ -1,6 +1,7 @@
 package com.codex.steward.core;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -279,6 +280,42 @@ public final class Reckoning
 	public int getTasksTotal()
 	{
 		return tasksTotal;
+	}
+
+	/**
+	 * A hash of everything the panel shows, so an unchanged reckoning is not drawn again. The
+	 * inventory changes every tick while skilling, and each change reckons afresh.
+	 */
+	public long fingerprint()
+	{
+		long h = 17;
+		for (List<Advice> list : Arrays.asList(spent, dust, kept))
+		{
+			h = h * 31 + list.size();
+			for (Advice a : list)
+			{
+				h = mix(h, a);
+			}
+		}
+		for (Map.Entry<String, List<Advice>> e : needed.entrySet())
+		{
+			h = h * 31 + e.getKey().hashCode();
+			for (Advice a : e.getValue())
+			{
+				h = mix(h, a);
+			}
+		}
+		return ((h * 31 + watchedDays) * 31 + dustDays) * 31 + tasksDone;
+	}
+
+	private static long mix(long h, Advice a)
+	{
+		h = h * 31 + a.getItemId();
+		h = h * 31 + a.getQuantity();
+		h = h * 31 + a.getPrice();
+		h = h * 31 + a.getUntouchedDays();
+		h = h * 31 + a.getVerdict().ordinal();
+		return h * 31 + a.getTasks().hashCode();
 	}
 
 	/** What selling everything on the list would bring. */
