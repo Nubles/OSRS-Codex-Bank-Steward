@@ -33,5 +33,15 @@ public class MemoryTest
 
 		memory.observeHeld(Collections.singletonList(7), 13);
 		assertEquals(13, memory.lastMoved(7));
+
+		// Only items in the bank need their moves remembered.
+		memory.prune();
+		assertEquals(-1, memory.lastMoved(7));
+		assertEquals(-1, memory.lastMoved(2));
+		assertEquals(12, memory.lastMoved(1));
+		Map<Integer, Long> back = new HashMap<>(next);
+		back.put(7, 1L);
+		memory.observeBank(back, 20);
+		assertEquals(20, memory.lastMoved(7));
 	}
 }

@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
@@ -70,8 +71,11 @@ public class CodexBankStewardPlugin extends Plugin
 	private static final Logger log = LoggerFactory.getLogger(CodexBankStewardPlugin.class);
 	private static final String MEMORY_KEY = "memory";
 	private static final String DATA = "steward-data.json";
-	/** Ticks between reading quest and diary progress while varbits are changing. */
-	private static final int PROGRESS_TICKS = 10;
+	/**
+	 * Ticks between reading quest and diary progress while varbits are changing. Varbits change
+	 * all the time in combat and skilling, and a read runs a client script for every quest.
+	 */
+	private static final int PROGRESS_TICKS = 25;
 	/** Ticks between saves while something has changed. */
 	private static final int SAVE_TICKS = 50;
 	/** Ticks between fresh reckonings, so prices and the day stay current. */
@@ -122,6 +126,10 @@ public class CodexBankStewardPlugin extends Plugin
 	private boolean reckonDirty;
 	private boolean unsaved;
 	private boolean summaryDue;
+	/** The bank summary has been written this login. */
+	private boolean summaryShown;
+	/** Quest and diary progress has been read at least once this login. */
+	private boolean progressRead;
 	private int ticks;
 	private int lastProgressRead = -PROGRESS_TICKS;
 
@@ -217,6 +225,7 @@ public class CodexBankStewardPlugin extends Plugin
 		GameState state = event.getGameState();
 		if (state == GameState.LOGGED_IN)
 		{
+			ensureProfile();
 			progressDirty = true;
 			reckonDirty = true;
 		}
@@ -224,6 +233,8 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			save();
 			summaryDue = false;
+			summaryShown = false;
+			progressRead = false;
 			reckonDirty = true;
 			publish();
 		}
@@ -232,11 +243,38 @@ public class CodexBankStewardPlugin extends Plugin
 	@Subscribe
 	public void onRuneScapeProfileChanged(RuneScapeProfileChanged event)
 	{
+		switchProfile();
+	}
+
+	/**
+	 * Saves the old account's memory and loads the new one's. Progress read for the old account
+	 * is forgotten, so nothing is called spent until the new account's quests have been read.
+	 */
+	private void switchProfile()
+	{
 		save();
 		loadProfile();
 		done = new boolean[catalog.getTasks().size()];
+		progressRead = false;
+		summaryShown = false;
+		summaryDue = false;
 		progressDirty = true;
 		reckonDirty = true;
+	}
+
+	/**
+	 * Makes sure the memory in hand is this account's. The profile changed event can arrive after
+	 * the first bank or inventory event of a new login, and one account's bank must never be
+	 * written into another's memory.
+	 */
+	private boolean ensureProfile()
+	{
+		String key = configManager.getRSProfileKey();
+		if (!Objects.equals(key, profile))
+		{
+			switchProfile();
+		}
+		return memory != null;
 	}
 
 	@Subscribe
@@ -258,14 +296,18 @@ public class CodexBankStewardPlugin extends Plugin
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		if (client.getGameState() != GameState.LOGGED_IN || memory == null)
+		int id = event.getContainerId();
+		if (id != InventoryID.BANK && id != InventoryID.INV && id != InventoryID.WORN)
 		{
 			return;
 		}
-		int id = event.getContainerId();
+		if (client.getGameState() != GameState.LOGGED_IN || !ensureProfile())
+		{
+			return;
+		}
 		if (id == InventoryID.BANK)
 		{
-			if (!memory.hasSeenBank() || reckoning == null)
+			if (!summaryShown)
 			{
 				summaryDue = true;
 			}
@@ -291,14 +333,17 @@ public class CodexBankStewardPlugin extends Plugin
 			progressDirty = false;
 			lastProgressRead = ticks;
 			reckonDirty |= readProgress();
+			progressRead = true;
 		}
 		if (reckonDirty || ticks % REFRESH_TICKS == 0)
 		{
 			reckon();
 			publish();
-			if (summaryDue && reckoning != null)
+			// Wait for quest progress, or the summary would undercount what is done with.
+			if (summaryDue && reckoning != null && progressRead)
 			{
 				summaryDue = false;
+				summaryShown = true;
 				summary();
 			}
 		}
@@ -333,9 +378,9 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			Task task = tasks.get(i);
 			boolean finished;
-			if (task.isDiary())
+			if (task.usesVarbit())
 			{
-				finished = client.getVarbitValue(task.getVarbit()) >= task.getValue();
+				finished = task.isFinishedAt(client.getVarbitValue(task.getVarbit()));
 			}
 			else
 			{
@@ -454,6 +499,7 @@ public class CodexBankStewardPlugin extends Plugin
 			return;
 		}
 		unsaved = false;
+		memory.prune();
 		configManager.setConfiguration(CodexBankStewardConfig.GROUP, profile, MEMORY_KEY, gson.toJson(memory));
 	}
 

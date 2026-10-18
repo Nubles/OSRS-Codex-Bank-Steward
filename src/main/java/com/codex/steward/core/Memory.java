@@ -124,6 +124,16 @@ public final class Memory
 		return from < 0 ? 0 : Math.max(0, today - from);
 	}
 
+	/**
+	 * Forgets moves of items no longer in the bank. They are of no use: an item coming back to
+	 * the bank is marked as moved on the day it returns. Keeps the saved copy from growing with
+	 * every item ever carried.
+	 */
+	public void prune()
+	{
+		moved.keySet().retainAll(bank.keySet());
+	}
+
 	public boolean isKept(int id)
 	{
 		return keep.contains(id);
