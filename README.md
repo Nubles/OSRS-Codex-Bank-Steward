@@ -39,7 +39,7 @@ Nothing is ever sold, dropped or withdrawn for you. The Steward only advises.
 
 ## Where the quest data comes from
 
-The list of which quests and diaries need which items comes from [Quest Helper](https://github.com/Zoinkwiz/quest-helper) (BSD 2-Clause), read by running its own helpers, so it covers 263 quests, miniquests, diary tiers and Recipe for Disaster's parts, including the items each quest only names in its steps. A part of Recipe for Disaster counts as done only once the whole quest is. `tools/README.md` has the steps to rebuild `steward-data.json` when new quests release.
+The list of which quests and diaries need which items comes from [Quest Helper](https://github.com/Zoinkwiz/quest-helper) (BSD 2-Clause), read by running its own helpers, so it covers 263 quests, miniquests, diary tiers and Recipe for Disaster's parts, including the items each quest only names in its steps. Each part of Recipe for Disaster is read on its own, so a finished part frees its items. `tools/README.md` has the steps to rebuild `steward-data.json` when new quests release.
 
 ## Rules posture
 

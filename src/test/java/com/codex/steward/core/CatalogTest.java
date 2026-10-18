@@ -68,8 +68,9 @@ public class CatalogTest
 			}
 			assertTrue(name, any);
 		}
-		// Recipe for Disaster's parts are read as the whole quest, so nothing is spent until it is all done.
-		assertTrue(catalog.getTasks().get(taskIndex(catalog, "RFD - Evil Dave")).getQuest().equals("RECIPE_FOR_DISASTER"));
+		// Recipe for Disaster's parts are each read on their own, so a finished part frees its items.
+		assertTrue(catalog.getTasks().get(taskIndex(catalog, "RFD - Evil Dave")).getQuest().equals("RECIPE_FOR_DISASTER__EVIL_DAVE"));
+		assertTrue(catalog.getTasks().get(taskIndex(catalog, "RFD - Finale")).getQuest().equals("RECIPE_FOR_DISASTER__CULINAROMANCER"));
 	}
 
 	@Test
@@ -108,6 +109,8 @@ public class CatalogTest
 			4286, // Bucket of slime: the Ectofuntus
 			7225, // Iron spit
 			954, // Rope
+			5282, // Mushroom spore: a farming seed
+			22818, // Fish chunks: aerial fishing bait
 		};
 		Set<Integer> unsafe = new HashSet<>();
 		for (int id : guarded)
@@ -118,5 +121,24 @@ public class CatalogTest
 			}
 		}
 		assertTrue("could be called spent: " + unsafe, unsafe.isEmpty());
+	}
+
+	/**
+	 * A choice coins can meet ("2 kegs of beer or 650 coins", "telegrab or 10,000 coins") does not
+	 * ask for the item, and once took the coins' quantity: up to 20,003 telegrab tablets were
+	 * called done with after Dragon Slayer.
+	 */
+	@Test
+	public void choicesCoinsCanMeetNeverMakeAnItemSpent() throws Exception
+	{
+		Catalog catalog = load();
+		for (int id : new int[]{8022, 3801})
+		{
+			for (Catalog.Need need : catalog.needsOf(id))
+			{
+				assertFalse(id + " for " + catalog.getTasks().get(need.getTask()).getName(), need.isFirm());
+			}
+			assertFalse(catalog.needsOf(id).isEmpty());
+		}
 	}
 }

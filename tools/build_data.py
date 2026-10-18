@@ -91,7 +91,7 @@ STAPLE_NAMES = [
     r"volcanic ash|mort myre fungus|toad's legs|dragon scale dust|lava scale shard|nettles|cactus spine|amylase crystal|"
     r"ground charcoal|charcoal|garlic|garlic powder|silver dust|blue dragon scale|crushed superior dragon bones)$",
     # Farming.
-    r'(?i) seed$', r'(?i) sapling$', r'(?i)compost$', r'(?i)^(plant cure|plant pot|filled plant pot|empty plant pot)$',
+    r'(?i) seed$', r'(?i) spore$', r'(?i) sapling$', r'(?i)compost$', r'(?i)^(plant cure|plant pot|filled plant pot|empty plant pot)$',
     # Crafting, fletching and runecrafting materials.
     r'(?i)^(wool|ball of wool|flax|bow string|leather|hard leather|cowhide|molten glass|bucket of sand|soda ash|seaweed|'
     r'silk|thread|feather|arrow shaft|headless arrow|tiara|unpowered orb|pure essence|rune essence|dark essence block|'
@@ -118,8 +118,24 @@ STAPLE_NAMES = [
     r'ourg |fayrg |raurg |burnt |shaikahan |wyrm |drake |hydra )?bones$',
 ]
 
-# Runes, essence and coins: always useful, whatever quests are done.
-STAPLES = list(range(554, 567)) + [9075, 21880, 4694, 4695, 4696, 4697, 4698, 4699, 1436, 7936, 995, 13204]
+# Runes, essence and coins: always useful, whatever quests are done. Fish chunks (22818) are
+# aerial fishing bait; the names file has no name for them.
+STAPLES = list(range(554, 567)) + [9075, 21880, 4694, 4695, 4696, 4697, 4698, 4699, 1436, 7936, 995, 13204, 22818]
+
+# Quest Helper gives every part of Recipe for Disaster the whole quest's id. RuneLite reads each
+# part on its own, so a finished part's items are not held back until the Culinaromancer falls.
+SUBQUESTS = {
+    'RFD - Start': 'RECIPE_FOR_DISASTER__ANOTHER_COOKS_QUEST',
+    'RFD - Mountain Dwarf': 'RECIPE_FOR_DISASTER__MOUNTAIN_DWARF',
+    'RFD - Wartface & Bentnoze': 'RECIPE_FOR_DISASTER__WARTFACE__BENTNOZE',
+    'RFD - Pirate Pete': 'RECIPE_FOR_DISASTER__PIRATE_PETE',
+    'RFD - Lumbridge Guide': 'RECIPE_FOR_DISASTER__LUMBRIDGE_GUIDE',
+    'RFD - Evil Dave': 'RECIPE_FOR_DISASTER__EVIL_DAVE',
+    'RFD - King Awowogei': 'RECIPE_FOR_DISASTER__KING_AWOWOGEI',
+    'RFD - Sir Amik Varze': 'RECIPE_FOR_DISASTER__SIR_AMIK_VARZE',
+    'RFD - Skrach Uglogwee': 'RECIPE_FOR_DISASTER__SKRACH_UGLOGWEE',
+    'RFD - Finale': 'RECIPE_FOR_DISASTER__CULINAROMANCER',
+}
 
 
 def item_names(path):
@@ -133,15 +149,19 @@ def matching(names, expressions):
     return {int(i) for i, n in names.items() if any(p.search(n) for p in patterns)}
 
 
-def entries(raw, staples):
-    """A task's needs as [qty, ids...], merged where the same items are named twice."""
+def entries(raw, staples, either=None):
+    """A task's needs as {ids: qty}, merged where the same items are named twice.
+
+    A choice that coins or runes can meet ("2 kegs of beer or 650 coins") does not ask for its
+    other items, and its quantity is the coins'; with `either` given, such choices go there."""
     merged = {}
     for n in raw:
         ids = [i for i in n['ids'] if i not in staples]
         if not ids:
             continue
         key = tuple(ids)
-        merged[key] = max(merged.get(key, 1), n['qty'])
+        into = either if either is not None and len(ids) < len(n['ids']) else merged
+        into[key] = max(into.get(key, 1), n['qty'] if into is merged else 1)
     return merged
 
 
@@ -159,14 +179,18 @@ def main(items_path, itemid_path, names_path):
     for t in tasks_in:
         task = {'name': t['name'], 'kind': t['kind']}
         if 'quest' in t:
-            task['quest'] = t['quest']
+            task['quest'] = SUBQUESTS.get(t['name'], t['quest'])
         else:
             task['varbit'] = t['varbit']
             task['value'] = t['value']
         index = len(tasks)
         tasks.append(task)
-        hard = entries(t["needs"], staples)
+        either = {}
+        hard = entries(t["needs"], staples, either)
         loose = entries(t.get("soft", []), staples)
+        for ids, qty in either.items():
+            if ids not in hard:
+                loose[ids] = max(loose.get(ids, 1), qty)
         named = set()
         for ids, qty in hard.items():
             needs.append([index, qty] + list(ids))
