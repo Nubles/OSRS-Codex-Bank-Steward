@@ -42,6 +42,7 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatColorType;
 import net.runelite.client.chat.ChatMessageBuilder;
@@ -111,6 +112,9 @@ public class CodexBankStewardPlugin extends Plugin
 	private final BankMarks marks = new BankMarks();
 	private final Map<Integer, String> names = new HashMap<>();
 	private final Map<Integer, Boolean> tradeable = new HashMap<>();
+	private final Map<Integer, Integer> alchPrice = new HashMap<>();
+	/** The account is an ironman of any kind, read with quest progress. */
+	private boolean ironman;
 	private final Map<String, Quest> quests = new HashMap<>();
 
 	private Catalog catalog;
@@ -194,6 +198,7 @@ public class CodexBankStewardPlugin extends Plugin
 			reckoning = null;
 			names.clear();
 			tradeable.clear();
+			alchPrice.clear();
 		});
 		panel = null;
 	}
@@ -255,6 +260,7 @@ public class CodexBankStewardPlugin extends Plugin
 		save();
 		loadProfile();
 		done = new boolean[catalog.getTasks().size()];
+		ironman = false;
 		progressRead = false;
 		summaryShown = false;
 		summaryDue = false;
@@ -374,6 +380,12 @@ public class CodexBankStewardPlugin extends Plugin
 	{
 		List<Task> tasks = catalog.getTasks();
 		boolean changed = false;
+		boolean iron = client.getVarbitValue(VarbitID.IRONMAN) != 0;
+		if (iron != ironman)
+		{
+			ironman = iron;
+			changed = true;
+		}
 		for (int i = 0; i < tasks.size(); i++)
 		{
 			Task task = tasks.get(i);
@@ -448,7 +460,9 @@ public class CodexBankStewardPlugin extends Plugin
 			describe(id);
 		}
 		Reckoning.Rules rules = new Reckoning.Rules(config.dustDays(), config.graceDays());
-		reckoning = Reckoning.of(catalog, memory, bank, held, done, itemManager::getItemPrice,
+		boolean alch = byAlchemy();
+		reckoning = Reckoning.of(catalog, memory, bank, held, done,
+			alch ? id -> alchPrice.getOrDefault(id, 0) : itemManager::getItemPrice,
 			id -> tradeable.getOrDefault(id, false), rules, today());
 	}
 
@@ -459,7 +473,15 @@ public class CodexBankStewardPlugin extends Plugin
 			ItemComposition item = itemManager.getItemComposition(itemId);
 			names.put(itemId, item.getName());
 			tradeable.put(itemId, item.isTradeable());
+			alchPrice.put(itemId, item.getHaPrice());
 		}
+	}
+
+	/** Whether the list is valued at high alchemy rather than the Grand Exchange. */
+	private boolean byAlchemy()
+	{
+		CodexBankStewardConfig.ValueBy by = config.valueBy();
+		return by == CodexBankStewardConfig.ValueBy.HIGH_ALCHEMY || by == CodexBankStewardConfig.ValueBy.AUTO && ironman;
 	}
 
 	private void loadProfile()
@@ -525,7 +547,7 @@ public class CodexBankStewardPlugin extends Plugin
 			.append(ChatColorType.NORMAL).append(what + ". Clearing them frees ")
 			.append(ChatColorType.HIGHLIGHT).append(reckoning.freedSlots() + (reckoning.freedSlots() == 1 ? " slot" : " slots"))
 			.append(ChatColorType.NORMAL).append(" and ")
-			.append(ChatColorType.HIGHLIGHT).append(Format.coins(reckoning.freedValue()) + " gp")
+			.append(ChatColorType.HIGHLIGHT).append(Format.coins(reckoning.freedValue()) + " gp" + (byAlchemy() ? " in alchs" : ""))
 			.append(ChatColorType.NORMAL).append(".");
 		chatMessageManager.queue(QueuedMessage.builder()
 			.type(ChatMessageType.CONSOLE)
@@ -557,9 +579,10 @@ public class CodexBankStewardPlugin extends Plugin
 		StewardPanel.State state = !loggedIn ? StewardPanel.State.LOGGED_OUT
 			: shown == null ? StewardPanel.State.WAITING_FOR_BANK : StewardPanel.State.READY;
 		Map<Integer, String> shownNames = new HashMap<>(names);
+		boolean alch = byAlchemy();
 		if (target != null)
 		{
-			SwingUtilities.invokeLater(() -> target.update(shown, shownNames, name, state));
+			SwingUtilities.invokeLater(() -> target.update(shown, shownNames, name, state, alch));
 		}
 	}
 }

@@ -92,8 +92,9 @@ public final class Reckoning
 			}
 			for (int item : need.getItems())
 			{
-				// A soft mention of a tool or supply would bury the page in food and teleports.
-				if (!need.isFirm() && catalog.isGeneral(item))
+				// A soft mention of a tool or supply, or a broad "any food" choice, would bury the
+				// page in food and teleports; such goods are never called spent anyway.
+				if (catalog.isGeneral(item) && (!need.isFirm() || need.getItems().length > Catalog.BROAD))
 				{
 					continue;
 				}

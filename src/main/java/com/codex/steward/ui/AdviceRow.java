@@ -29,18 +29,24 @@ class AdviceRow extends JComponent
 	private final Advice advice;
 	private final String name;
 	private final String note;
+	private final String more;
+	private final boolean alch;
 	private final ItemIcons icons;
 	private boolean hover;
 
 	/**
+	 * @param more a short tail for the note that is never clipped, like "+2", or null
 	 * @param action label for the click menu, or null for a row with no action
 	 * @param onAction run when the menu item is chosen
+	 * @param alch prices are high alchemy values
 	 */
-	AdviceRow(Advice advice, String name, String note, ItemIcons icons, String action, Runnable onAction)
+	AdviceRow(Advice advice, String name, String note, String more, ItemIcons icons, String action, Runnable onAction, boolean alch)
 	{
 		this.advice = advice;
 		this.name = name;
 		this.note = note;
+		this.more = more;
+		this.alch = alch;
 		this.icons = icons;
 		setOpaque(false);
 		setPreferredSize(new Dimension(10, WELL + 6));
@@ -89,7 +95,7 @@ class AdviceRow extends JComponent
 		}
 		if (advice.isTradeable() && advice.getPrice() > 0)
 		{
-			tip.append("<br>").append(Format.coins(advice.getPrice())).append(" gp each");
+			tip.append("<br>").append(Format.coins(advice.getPrice())).append(alch ? " gp each to alch" : " gp each");
 		}
 		else if (!advice.isTradeable())
 		{
@@ -97,7 +103,7 @@ class AdviceRow extends JComponent
 		}
 		for (String task : advice.getTasks())
 		{
-			tip.append("<br>").append(advice.getVerdict() == Advice.Verdict.NEEDED ? "For " : "Done: ").append(Ui.escape(task));
+			tip.append("<br>").append(advice.getVerdict() == Advice.Verdict.NEEDED ? "Still for " : "Done: ").append(Ui.escape(task));
 		}
 		return tip.append("</html>").toString();
 	}
@@ -163,7 +169,20 @@ class AdviceRow extends JComponent
 			g.setFont(Theme.small());
 			FontMetrics small = g.getFontMetrics();
 			g.setColor(Theme.mix(Theme.TEXT_FAINT, accent, 0.35));
-			g.drawString(Ui.clip(note, small, w - tx - 2), tx, y + WELL - 5);
+			int room = w - tx - 2;
+			if (more != null)
+			{
+				int mw = small.stringWidth(more);
+				room -= mw + 4;
+				String shown = Ui.clip(note, small, room);
+				g.drawString(shown, tx, y + WELL - 5);
+				g.setColor(Theme.mix(Theme.TEXT_MUTED, accent, 0.5));
+				g.drawString(more, tx + small.stringWidth(shown) + 4, y + WELL - 5);
+			}
+			else
+			{
+				g.drawString(Ui.clip(note, small, room), tx, y + WELL - 5);
+			}
 		}
 		g.dispose();
 	}

@@ -19,6 +19,9 @@ import java.util.Set;
  */
 public final class Catalog
 {
+	/** An "any of" need with more choices than this is a broad one, like "any food". */
+	public static final int BROAD = 4;
+
 	/** The file as stored; Gson fills it in. */
 	public static final class Data
 	{

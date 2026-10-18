@@ -28,8 +28,9 @@ public class Crest extends JComponent
 	private String status = "Log in to take stock";
 	private long total;
 	private boolean known;
-	private final int[] counts = new int[3];
-	private static final String[] COUNTS = {"Slots", "Done", "Dusty"};
+	private final String[] counts = {"0", "0", "0"};
+	private boolean alch;
+	private static final String[] COUNTS = {"Slots", "Tasks done", "Kept"};
 
 	public Crest()
 	{
@@ -41,12 +42,14 @@ public class Crest extends JComponent
 	/**
 	 * @param total what the list would sell for, or null before the bank is known
 	 * @param status a line in place of the counts, or null to show them
-	 * @param counts slots freed, items done with and dusty items
+	 * @param counts slots freed, quests and diaries done of all, items kept aside
+	 * @param alch the total is in high alchemy prices
 	 */
-	public void update(String player, Long total, String status, int[] counts)
+	public void update(String player, Long total, String status, String[] counts, boolean alch)
 	{
 		this.player = player;
 		this.status = status;
+		this.alch = alch;
 		this.known = total != null;
 		if (total != null)
 		{
@@ -56,7 +59,7 @@ public class Crest extends JComponent
 		}
 		for (int i = 0; i < 3; i++)
 		{
-			this.counts[i] = counts == null ? 0 : counts[i];
+			this.counts[i] = counts == null ? "0" : counts[i];
 		}
 		repaint();
 	}
@@ -119,10 +122,11 @@ public class Crest extends JComponent
 		int room = w - tx - 8;
 		g.setFont(Theme.small());
 		FontMetrics small = g.getFontMetrics();
-		String heading = player != null ? player + "  -  COULD FREE" : "COULD FREE";
+		String what = alch ? "COULD ALCH FOR" : "COULD FREE";
+		String heading = player != null ? player + "  -  " + what : what;
 		if (small.stringWidth(heading) > room)
 		{
-			heading = "COULD FREE";
+			heading = what;
 		}
 		g.setColor(Theme.TEXT_MUTED);
 		g.drawString(Ui.clip(heading, small, room), tx, 22);
@@ -146,14 +150,16 @@ public class Crest extends JComponent
 		}
 		else
 		{
-			int cw = room / 3;
-			Color[] colors = {Theme.TEXT, Theme.SPENT, Theme.DUST};
+			// Slots, then the wider tasks column, then kept.
+			int[] xs = {tx, tx + room * 27 / 100, tx + room * 77 / 100};
+			Color[] colors = {Theme.GOLD, Theme.TEXT, Theme.KEPT};
 			for (int i = 0; i < 3; i++)
 			{
-				int x = tx + i * cw;
+				int x = xs[i];
 				g.setColor(Theme.TEXT_FAINT);
 				g.drawString(COUNTS[i], x, cy - 11);
-				Ui.shadowed(g, String.valueOf(counts[i]), x, cy + 1, counts[i] > 0 ? colors[i] : Theme.TEXT_FAINT);
+				boolean none = "0".equals(counts[i]);
+				Ui.shadowed(g, counts[i], x, cy + 1, none ? Theme.TEXT_FAINT : colors[i]);
 			}
 		}
 

@@ -37,11 +37,43 @@ public interface CodexBankStewardConfig extends Config
 		return 14;
 	}
 
+	enum ValueBy
+	{
+		/** The Grand Exchange, or high alchemy on an ironman. */
+		AUTO("Auto"),
+		GRAND_EXCHANGE("Grand Exchange"),
+		HIGH_ALCHEMY("High alchemy");
+
+		private final String label;
+
+		ValueBy(String label)
+		{
+			this.label = label;
+		}
+
+		@Override
+		public String toString()
+		{
+			return label;
+		}
+	}
+
+	@ConfigItem(
+		keyName = "valueBy",
+		name = "Value items at",
+		description = "What the list's gold is reckoned at. Auto uses Grand Exchange prices, or high alchemy on ironman accounts, which cannot use the Grand Exchange",
+		position = 2
+	)
+	default ValueBy valueBy()
+	{
+		return ValueBy.AUTO;
+	}
+
 	@ConfigItem(
 		keyName = "bankMarks",
 		name = "Mark items in the bank",
 		description = "Mark the Steward's list on the items in your bank: a gold diamond for done with, a ring for dusty",
-		position = 2
+		position = 3
 	)
 	default boolean bankMarks()
 	{
@@ -52,7 +84,7 @@ public interface CodexBankStewardConfig extends Config
 		keyName = "bankSummary",
 		name = "Summary at the bank",
 		description = "The first time you open your bank each login, write in the chat box what the Steward's list could free",
-		position = 3
+		position = 4
 	)
 	default boolean bankSummary()
 	{
