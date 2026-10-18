@@ -7,6 +7,8 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import javax.swing.JComponent;
@@ -55,6 +57,7 @@ public class StewardPanel extends PluginPanel
 	private Reckoning reckoning;
 	private Map<Integer, String> names = Collections.emptyMap();
 	private State state = State.LOGGED_OUT;
+	private boolean alch;
 
 	public StewardPanel(ItemIcons icons, Actions actions)
 	{
@@ -100,12 +103,14 @@ public class StewardPanel extends PluginPanel
 	 *
 	 * @param reckoning the latest reckoning, or null when no bank is known
 	 * @param names item names for every item the reckoning mentions
+	 * @param alch values are high alchemy prices rather than the Grand Exchange's
 	 */
-	public void update(Reckoning reckoning, Map<Integer, String> names, String player, State state)
+	public void update(Reckoning reckoning, Map<Integer, String> names, String player, State state, boolean alch)
 	{
 		this.reckoning = reckoning;
 		this.names = names;
 		this.state = state;
+		this.alch = alch;
 		updateCrest(player);
 		rebuild();
 	}
@@ -121,12 +126,14 @@ public class StewardPanel extends PluginPanel
 	{
 		if (reckoning == null)
 		{
-			crest.update(player, null, state == State.LOGGED_OUT ? "Log in to take stock" : "Open your bank to take stock", null);
+			crest.update(player, null, state == State.LOGGED_OUT ? "Log in to take stock" : "Open your bank once", null, alch);
 			return;
 		}
 		String status = state == State.LOGGED_OUT ? "Logged out, bank as last seen" : null;
-		int[] counts = {reckoning.freedSlots(), reckoning.getSpent().size(), reckoning.getDust().size()};
-		crest.update(player, reckoning.freedValue(), status, counts);
+		crest.update(player, reckoning.freedValue(), status, new String[]{
+			String.valueOf(reckoning.freedSlots()),
+			reckoning.getTasksDone() + "/" + reckoning.getTasksTotal(),
+			String.valueOf(reckoning.getKept().size())}, alch);
 	}
 
 	private void rebuild()
@@ -210,17 +217,31 @@ public class StewardPanel extends PluginPanel
 		Map<String, List<Advice>> byTask = reckoning.getNeeded();
 		Card head = new Card(new BorderLayout(0, 4));
 		head.highlighted(true);
-		head.add(Ui.label(reckoning.getTasksDone() + " of " + reckoning.getTasksTotal() + " done", Theme.title(), Theme.GOLD_BRIGHT), BorderLayout.NORTH);
+		Set<Integer> heldItems = new HashSet<>();
+		long heldValue = 0;
+		for (List<Advice> list : byTask.values())
+		{
+			for (Advice a : list)
+			{
+				if (heldItems.add(a.getItemId()))
+				{
+					heldValue += a.getValue();
+				}
+			}
+		}
+		int open = reckoning.getTasksTotal() - reckoning.getTasksDone();
+		head.add(Ui.label(byTask.isEmpty() ? "Nothing held back" : "Keep for unfinished work", Theme.title(), Theme.GOLD_BRIGHT), BorderLayout.NORTH);
 		head.add(Ui.wrapped(byTask.isEmpty()
-			? "Nothing in your bank is waiting on an unfinished quest or diary."
-			: byTask.size() + " unfinished quests and diaries hold items back. Keep these until they are done.",
+			? "None of your " + open + " unfinished quests and diaries needs anything in your bank."
+			: byTask.size() + " of your " + open + " unfinished quests and diaries need " + count(heldItems.size())
+				+ (heldValue > 0 ? " worth " + Format.coins(heldValue) : "") + " from your bank. These are never listed to clear out.",
 			Theme.small(), Theme.TEXT_MUTED, WIDTH - 30), BorderLayout.CENTER);
 		stack.add(head);
 		for (Map.Entry<String, List<Advice>> e : byTask.entrySet())
 		{
 			long held = value(e.getValue());
 			stack.add(new SectionHeader(e.getKey(), held > 0 ? Format.coins(held) : null));
-			stack.add(rows(e.getValue(), false));
+			stack.add(rows(e.getValue(), false, e.getKey()));
 		}
 		replace(needed, stack);
 	}
@@ -248,6 +269,12 @@ public class StewardPanel extends PluginPanel
 
 	private JPanel rows(List<Advice> list, boolean withAction)
 	{
+		return rows(list, withAction, null);
+	}
+
+	/** @param section the quest a Needed section is for, so a row names the others */
+	private JPanel rows(List<Advice> list, boolean withAction, String section)
+	{
 		JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
 		rows.setOpaque(false);
 		for (int i = 0; i < list.size() && i < ROWS; i++)
@@ -261,7 +288,7 @@ public class StewardPanel extends PluginPanel
 				action = isKept ? "Let it go" : "Keep it";
 				run = () -> actions.keep(a.getItemId(), !isKept);
 			}
-			rows.add(new AdviceRow(a, name(a.getItemId()), note(a), icons, action, run));
+			rows.add(new AdviceRow(a, name(a.getItemId()), note(a, section), more(a), icons, action, run, alch));
 		}
 		return rows;
 	}
@@ -275,24 +302,47 @@ public class StewardPanel extends PluginPanel
 		}
 	}
 
-	/** The Steward's reason, in a few words. */
-	private String note(Advice a)
+	/**
+	 * The Steward's reason, in a few words. The section header already says whether the work is
+	 * done or still owed, so a row names the quest itself.
+	 */
+	private String note(Advice a, String section)
 	{
+		List<String> tasks = a.getTasks();
 		switch (a.getVerdict())
 		{
 			case SPENT:
-			{
-				List<String> tasks = a.getTasks();
-				String first = tasks.isEmpty() ? "Its quests" : tasks.get(0);
-				return tasks.size() > 1 ? first + " +" + (tasks.size() - 1) + " done" : first + " done";
-			}
+				return tasks.isEmpty() ? "Its quests are done" : tasks.get(0);
 			case DUST:
-				return "Untouched " + Format.days(a.getUntouchedDays());
+				return "Untouched " + untouched(a);
 			case NEEDED:
-				return a.getTasks().size() > 1 ? "Also for " + (a.getTasks().size() - 1) + " more" : a.isTradeable() ? Format.coins(a.getPrice()) + " each" : "Untradeable";
+				// Listed under one quest already; name another that wants it too.
+				for (String task : tasks)
+				{
+					if (!task.equals(section))
+					{
+						return "Also " + task;
+					}
+				}
+				return a.isTradeable() ? "Only this quest" : "Untradeable";
 			default:
-				return a.getUntouchedDays() > 0 ? "Kept, untouched " + Format.days(a.getUntouchedDays()) : "Kept";
+				return a.getUntouchedDays() > 0 ? "Kept, untouched " + untouched(a) : "Kept";
 		}
+	}
+
+	/** A count of further quests that is never clipped away, like "+2". */
+	private static String more(Advice a)
+	{
+		int extra = a.getTasks().size() - (a.getVerdict() == Advice.Verdict.NEEDED ? 2 : 1);
+		return extra > 0 && a.getVerdict() != Advice.Verdict.DUST && a.getVerdict() != Advice.Verdict.KEPT ? "+" + extra : null;
+	}
+
+	/** "134 days", or "210+ days" when it has not moved since the Steward began watching. */
+	private String untouched(Advice a)
+	{
+		boolean sinceWatching = reckoning != null && a.getUntouchedDays() >= reckoning.getWatchedDays();
+		long days = a.getUntouchedDays();
+		return sinceWatching && days > 1 ? days + "+ days" : Format.days(days);
 	}
 
 	private String name(int itemId)

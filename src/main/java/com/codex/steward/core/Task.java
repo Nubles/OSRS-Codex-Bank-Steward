@@ -2,7 +2,9 @@ package com.codex.steward.core;
 
 /**
  * A quest, miniquest or achievement diary tier that needs items. Quests are read through
- * RuneLite's Quest enum by name; a diary tier is done once its reward varbit reaches its value.
+ * RuneLite's Quest enum by name. A diary tier is done once its reward varbit reaches its value;
+ * a miniquest RuneLite has no Quest for is done when its varbit holds exactly its final value,
+ * as Quest Helper reads it.
  */
 public final class Task
 {
@@ -44,7 +46,23 @@ public final class Task
 		return DIARY.equals(kind);
 	}
 
-	/** The name of the net.runelite.api.Quest constant, or null for a diary. */
+	/** Read from a varbit rather than RuneLite's Quest enum. */
+	public boolean usesVarbit()
+	{
+		return quest == null || quest.isEmpty();
+	}
+
+	/** Whether the task's varbit, read as {@code value}, means it is finished. */
+	public boolean isFinishedAt(int varbitValue)
+	{
+		if (value <= 0)
+		{
+			return false;
+		}
+		return isDiary() ? varbitValue >= value : varbitValue == value;
+	}
+
+	/** The name of the net.runelite.api.Quest constant, or null when read from a varbit. */
 	public String getQuest()
 	{
 		return quest;

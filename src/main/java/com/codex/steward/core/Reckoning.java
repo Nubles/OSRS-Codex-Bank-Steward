@@ -1,6 +1,7 @@
 package com.codex.steward.core;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -16,11 +17,14 @@ import java.util.function.IntToLongFunction;
  * The Steward's reckoning of a bank: what can go because its quests and diaries are done, what
  * has gathered dust, what is still owed to unfinished work, and what the player chose to keep.
  *
- * <p>An item is spent only when the catalog names it, every task naming it is done, it is not a
- * general good or a lasting reward, the stack is no bigger than leftovers from those tasks, and it
- * has not moved within the grace period. An "any of"
- * need of an unfinished task holds one item: the first of its choices the player owns, so a
- * spare pickaxe is not held back because some quest wants a pickaxe.</p>
+ * <p>An item is spent only when a task asks for it, every task naming it in any way is done, it
+ * is not a general good or a lasting reward, the stack is no bigger than leftovers from those
+ * tasks, and it has not moved within the grace period. An "any of" need of an unfinished task
+ * holds one item: the first of its choices the player owns, so a spare pickaxe is not held back
+ * because some quest wants a pickaxe. Its other choices are still never called spent.</p>
+ *
+ * <p>Dust is only called on tradeable items: an untradeable item nothing explains may be a
+ * reward that cannot be had again, so the Steward never suggests dropping it on age alone.</p>
  */
 public final class Reckoning
 {
@@ -89,6 +93,12 @@ public final class Reckoning
 			}
 			for (int item : need.getItems())
 			{
+				// A soft mention of a tool or supply, or a broad "any food" choice, would bury the
+				// page in food and teleports; such goods are never called spent anyway.
+				if (catalog.isGeneral(item) && (!need.isFirm() || need.getItems().length > Catalog.BROAD))
+				{
+					continue;
+				}
 				if (held.contains(item) || bank.getOrDefault(item, 0L) > 0)
 				{
 					holding.computeIfAbsent(item, k -> new HashSet<>()).add(need.getTask());
@@ -136,12 +146,17 @@ public final class Reckoning
 				Set<Integer> served = new HashSet<>();
 				for (Catalog.Need need : catalog.needsOf(id))
 				{
-					served.add(need.getTask());
+					if (need.isFirm())
+					{
+						served.add(need.getTask());
+					}
 				}
 				spent.add(new Advice(id, qty, each, canSell, Advice.Verdict.SPENT, names(tasks, served), untouched));
 				continue;
 			}
-			if (watched >= rules.dustDays && untouched >= rules.dustDays && !catalog.isLasting(id))
+			// An untradeable item nothing explains is not known to be safe to drop, so dust is only
+			// ever called on what can be sold back.
+			if (canSell && watched >= rules.dustDays && untouched >= rules.dustDays && !catalog.isLasting(id))
 			{
 				dust.add(new Advice(id, qty, each, canSell, Advice.Verdict.DUST, null, untouched));
 			}
@@ -189,7 +204,15 @@ public final class Reckoning
 			{
 				return false;
 			}
-			largest = Math.max(largest, need.getQuantity());
+			if (need.isFirm())
+			{
+				largest = Math.max(largest, need.getQuantity());
+			}
+		}
+		// Only named in passing, never asked for: no quest gave it a purpose to have finished.
+		if (largest == 0)
+		{
+			return false;
 		}
 		// A stack far beyond what any quest asked for was gathered for something else, like skilling.
 		if (qty > leftoverLimit(largest))
@@ -257,6 +280,42 @@ public final class Reckoning
 	public int getTasksTotal()
 	{
 		return tasksTotal;
+	}
+
+	/**
+	 * A hash of everything the panel shows, so an unchanged reckoning is not drawn again. The
+	 * inventory changes every tick while skilling, and each change reckons afresh.
+	 */
+	public long fingerprint()
+	{
+		long h = 17;
+		for (List<Advice> list : Arrays.asList(spent, dust, kept))
+		{
+			h = h * 31 + list.size();
+			for (Advice a : list)
+			{
+				h = mix(h, a);
+			}
+		}
+		for (Map.Entry<String, List<Advice>> e : needed.entrySet())
+		{
+			h = h * 31 + e.getKey().hashCode();
+			for (Advice a : e.getValue())
+			{
+				h = mix(h, a);
+			}
+		}
+		return ((h * 31 + watchedDays) * 31 + dustDays) * 31 + tasksDone;
+	}
+
+	private static long mix(long h, Advice a)
+	{
+		h = h * 31 + a.getItemId();
+		h = h * 31 + a.getQuantity();
+		h = h * 31 + a.getPrice();
+		h = h * 31 + a.getUntouchedDays();
+		h = h * 31 + a.getVerdict().ordinal();
+		return h * 31 + a.getTasks().hashCode();
 	}
 
 	/** What selling everything on the list would bring. */
