@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
@@ -50,6 +51,7 @@ import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.RuneScapeProfileChanged;
 import net.runelite.client.game.ItemManager;
@@ -225,6 +227,29 @@ public class CodexBankStewardPlugin extends Plugin
 			log.warn("Could not read the Steward's quest and diary data", e);
 			return new Catalog(new Catalog.Data());
 		}
+	}
+
+	@Subscribe
+	public void onClientShutdown(ClientShutdown event)
+	{
+		// ConfigManager writes its changes to disk in this same event, before a save queued on the
+		// client thread runs, so a save made here has to be sent on by hand or it is never written.
+		CompletableFuture<Void> done = new CompletableFuture<>();
+		clientThread.invokeLater(() ->
+		{
+			try
+			{
+				if (save())
+				{
+					configManager.sendConfig();
+				}
+			}
+			finally
+			{
+				done.complete(null);
+			}
+		});
+		event.waitFor(done);
 	}
 
 	@Subscribe
@@ -526,15 +551,17 @@ public class CodexBankStewardPlugin extends Plugin
 		reckonDirty = true;
 	}
 
-	private void save()
+	/** Writes to the profile if anything changed, and says whether it did. */
+	private boolean save()
 	{
 		if (profile == null || memory == null || !unsaved)
 		{
-			return;
+			return false;
 		}
 		unsaved = false;
 		memory.prune();
 		configManager.setConfiguration(CodexBankStewardConfig.GROUP, profile, MEMORY_KEY, gson.toJson(memory));
+		return true;
 	}
 
 	private void summary()
