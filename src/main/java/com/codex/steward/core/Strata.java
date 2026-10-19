@@ -2,8 +2,11 @@ package com.codex.steward.core;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.IntToLongFunction;
 
 /**
  * The bank laid down in layers by age, like rock: how many kinds of item moved this week, this
@@ -35,13 +38,21 @@ public final class Strata
 		private final int from;
 		private final int count;
 		private final boolean open;
+		private final Set<Integer> items;
 
-		Layer(String name, int from, int count, boolean open)
+		Layer(String name, int from, int count, boolean open, Set<Integer> items)
 		{
 			this.name = name;
 			this.from = from;
 			this.count = count;
 			this.open = open;
+			this.items = Collections.unmodifiableSet(items);
+		}
+
+		/** The items in it, by id, for showing the layer in the bank. */
+		public Set<Integer> getItems()
+		{
+			return items;
 		}
 
 		public String getName()
@@ -74,12 +85,20 @@ public final class Strata
 		private final int itemId;
 		private final long days;
 		private final boolean atLeast;
+		private final long value;
 
-		Old(int itemId, long days, boolean atLeast)
+		Old(int itemId, long days, boolean atLeast, long value)
 		{
 			this.itemId = itemId;
 			this.days = days;
 			this.atLeast = atLeast;
+			this.value = value;
+		}
+
+		/** What the stack is worth at the exchange, 0 when it has no price. */
+		public long getValue()
+		{
+			return value;
 		}
 
 		public int getItemId()
@@ -122,12 +141,26 @@ public final class Strata
 	 */
 	public static Strata of(Memory memory, Map<Integer, Long> bank, long today)
 	{
+		return of(memory, bank, today, id -> 0);
+	}
+
+	/**
+	 * @param price each item's exchange price, which ranks items that have lain still equally
+	 *     long: the most valuable stack first
+	 */
+	public static Strata of(Memory memory, Map<Integer, Long> bank, long today, IntToLongFunction price)
+	{
 		if (memory == null || bank == null || !memory.hasSeenBank())
 		{
 			return EMPTY;
 		}
 		long watched = Math.max(0, today - memory.getSince());
 		int[] counts = new int[FROM.length];
+		List<Set<Integer>> items = new ArrayList<>();
+		for (int i = 0; i < FROM.length; i++)
+		{
+			items.add(new HashSet<>());
+		}
 		int total = 0;
 		int deep = 0;
 		List<Old> all = new ArrayList<>();
@@ -140,6 +173,7 @@ public final class Strata
 			}
 			long days = memory.untouchedDays(id, today);
 			counts[layer(days)]++;
+			items.get(layer(days)).add(id);
 			total++;
 			if (days >= DEEP)
 			{
@@ -148,24 +182,45 @@ public final class Strata
 			if (days > 0)
 			{
 				// Moved today is not deep, even on the first day when nothing has had time to settle.
-				all.add(new Old(id, days, memory.lastMoved(id) < 0));
+				long each = Math.max(0, price.applyAsLong(id));
+				long value = each > 0 && e.getValue() > Long.MAX_VALUE / each ? Long.MAX_VALUE : each * e.getValue();
+				all.add(new Old(id, days, memory.lastMoved(id) < 0, value));
 			}
 		}
 		if (total == 0)
 		{
 			return EMPTY;
 		}
-		// Oldest first; among equals, the lower id, so the list holds still from one look to the next.
-		all.sort((a, b) -> a.days != b.days ? Long.compare(b.days, a.days) : Integer.compare(a.itemId, b.itemId));
+		// Oldest first. Everything unmoved since watching began ties on age, so among equals the
+		// most valuable stack comes first: the gold lying idle is what the deepest are worth
+		// knowing for. Then the lower id, so the list holds still from one look to the next.
+		all.sort((a, b) -> a.days != b.days ? Long.compare(b.days, a.days)
+			: a.value != b.value ? Long.compare(b.value, a.value) : Integer.compare(a.itemId, b.itemId));
 		List<Old> oldest = new ArrayList<>(all.subList(0, Math.min(OLDEST, all.size())));
 		int reached = layer(watched);
 		List<Layer> layers = new ArrayList<>();
 		for (int i = 0; i <= reached; i++)
 		{
 			boolean open = i == reached && i < FROM.length - 1;
-			layers.add(new Layer(open ? OPEN[i] : NAMES[i], FROM[i], counts[i], open));
+			layers.add(new Layer(open ? OPEN[i] : NAMES[i], FROM[i], counts[i], open, items.get(i)));
 		}
 		return new Strata(layers, oldest, total, deep, watched);
+	}
+
+	/**
+	 * The items of the layer that starts at {@code from} days, or none when watching has not
+	 * reached it: what the bank shows when that layer is clicked.
+	 */
+	public Set<Integer> itemsFrom(int from)
+	{
+		for (Layer l : layers)
+		{
+			if (l.from == from)
+			{
+				return l.items;
+			}
+		}
+		return Collections.emptySet();
 	}
 
 	/** Which layer an age falls in. */
@@ -224,7 +279,7 @@ public final class Strata
 		}
 		for (Old o : oldest)
 		{
-			out.append(';').append(o.itemId).append(':').append(o.days);
+			out.append(';').append(o.itemId).append(':').append(o.days).append(':').append(o.value);
 		}
 		return out.toString();
 	}

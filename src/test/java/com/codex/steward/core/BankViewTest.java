@@ -49,6 +49,9 @@ public class BankViewTest
 	{
 		assertTrue(BankView.isOurs(BankView.CLEAR_OUT));
 		assertTrue(BankView.isOurs(BankView.TIDY));
+		// A layer shown from the layers card closes with the bank like the others.
+		assertTrue(BankView.isOurs(BankView.LAYER));
+		assertTrue(BankView.shouldClose("vorkath", BankView.LAYER));
 		assertFalse("the player's own tab stays remembered", BankView.isOurs("vorkath"));
 		assertFalse(BankView.isOurs(null));
 		assertFalse(BankView.isOurs(""));
@@ -137,5 +140,19 @@ public class BankViewTest
 		assertEquals(BankView.Change.NONE, BankView.change(BankView.TIDY, BankView.CLEAR_OUT, before, after));
 		assertEquals(BankView.Change.NONE, BankView.change(null, BankView.CLEAR_OUT, before, after));
 		assertEquals(BankView.Change.NONE, BankView.change("my-tag", BankView.CLEAR_OUT, before, done));
+	}
+
+	@Test
+	public void aLayerViewHoldsItsItemsAndSaysHowToOpenIt()
+	{
+		BankView layer = BankView.layer(java.util.Arrays.asList(4151, 1127));
+		assertTrue(layer.contains(4151, 4151));
+		assertFalse(layer.contains(385, 385));
+		assertTrue(BankView.layer(java.util.Collections.emptySet()).isEmpty());
+		assertEquals(BankView.Change.LAYOUT, BankView.change(BankView.LAYER, BankView.LAYER, layer,
+			BankView.layer(java.util.Collections.singletonList(1127))));
+		assertEquals(BankView.Change.CLOSE, BankView.change(BankView.LAYER, BankView.LAYER, layer, BankView.EMPTY));
+		assertTrue(BankView.explain(BankView.Refusal.BANK_CLOSED, BankView.LAYER).contains("click a layer"));
+		assertTrue(BankView.explain(BankView.Refusal.NOTHING, BankView.LAYER).contains("that layer"));
 	}
 }

@@ -213,6 +213,12 @@ public class CodexBankStewardPlugin extends Plugin
 	/** The lists the bank can be shown filtered to, as last published; read by Bank Tags on the client thread. */
 	private BankView clearView = BankView.EMPTY;
 	private BankView tidyView = BankView.EMPTY;
+	/** The layer of the bank by age last clicked on the layers card, and its items as last reckoned. */
+	private BankView layerView = BankView.EMPTY;
+	/** Where that layer starts, in days untouched; -1 for the deepest, before any is clicked. */
+	private int layerFrom = -1;
+	/** The layers as last reckoned, for a click to pick one from; client thread only. */
+	private Strata lastStrata = Strata.EMPTY;
 	/** The player's own bank tab open when Show in bank was pressed, or null; client thread only. */
 	private String tabBefore;
 
@@ -238,8 +244,12 @@ public class CodexBankStewardPlugin extends Plugin
 		lastProgressRead = ticks - PROGRESS_TICKS;
 		clearView = BankView.EMPTY;
 		tidyView = BankView.EMPTY;
+		layerView = BankView.EMPTY;
+		layerFrom = -1;
+		lastStrata = Strata.EMPTY;
 		tagManager.registerTag(BankView.CLEAR_OUT, id -> clearView.contains(id, itemManager.canonicalize(id)));
 		tagManager.registerTag(BankView.TIDY, id -> tidyView.contains(id, id));
+		tagManager.registerTag(BankView.LAYER, id -> layerView.contains(id, itemManager.canonicalize(id)));
 		for (Quest quest : Quest.values())
 		{
 			quests.put(quest.name(), quest);
@@ -270,6 +280,17 @@ public class CodexBankStewardPlugin extends Plugin
 			public void showInBank(String view)
 			{
 				clientThread.invokeLater(() -> CodexBankStewardPlugin.this.showInBank(view));
+			}
+
+			@Override
+			public void showLayer(int from)
+			{
+				clientThread.invokeLater(() ->
+				{
+					layerFrom = from;
+					layerView = BankView.layer(layerItems(lastStrata));
+					CodexBankStewardPlugin.this.showInBank(BankView.LAYER);
+				});
 			}
 		});
 		navButton = NavigationButton.builder()
@@ -313,12 +334,15 @@ public class CodexBankStewardPlugin extends Plugin
 		clientToolbar.removeNavigation(navButton);
 		tagManager.unregisterTag(BankView.CLEAR_OUT);
 		tagManager.unregisterTag(BankView.TIDY);
+		tagManager.unregisterTag(BankView.LAYER);
 		clientThread.invokeLater(() ->
 		{
 			// A view left open would show an empty bank with the Steward gone.
 			closeView();
 			clearView = BankView.EMPTY;
 			tidyView = BankView.EMPTY;
+			layerView = BankView.EMPTY;
+			lastStrata = Strata.EMPTY;
 			save();
 			writeSnapshot();
 			memory = null;
@@ -576,10 +600,21 @@ public class CodexBankStewardPlugin extends Plugin
 		}
 	}
 
+	/** The items of the layer last clicked, or of the deepest layer before any is. */
+	private Set<Integer> layerItems(Strata strata)
+	{
+		List<Strata.Layer> layers = strata.getLayers();
+		if (layers.isEmpty())
+		{
+			return Collections.emptySet();
+		}
+		return layerFrom < 0 ? layers.get(layers.size() - 1).getItems() : strata.itemsFrom(layerFrom);
+	}
+
 	/** Shows the bank filtered to one of the Steward's lists, or says in the chat box why it cannot. */
 	private void showInBank(String tag)
 	{
-		BankView view = BankView.TIDY.equals(tag) ? tidyView : clearView;
+		BankView view = BankView.TIDY.equals(tag) ? tidyView : BankView.LAYER.equals(tag) ? layerView : clearView;
 		// Bank Tags is on unless turned off, the way RuneLite itself decides it.
 		boolean tagsOn = !"false".equals(configManager.getConfiguration(RuneLiteConfig.GROUP_NAME, "banktagsplugin"));
 		BankView.Refusal refusal = view.refusal(bankOpen(), tagsOn);
@@ -1232,7 +1267,23 @@ public class CodexBankStewardPlugin extends Plugin
 				bankSearch.layoutBank();
 			}
 		}
-		Strata strata = shown == null || memory == null ? Strata.EMPTY : Strata.of(memory, memory.getBank(), today());
+		Strata strata = shown == null || memory == null ? Strata.EMPTY : Strata.of(memory, memory.getBank(), today(), itemManager::getItemPrice);
+		lastStrata = strata;
+		BankView layerBefore = layerView;
+		layerView = BankView.layer(layerItems(strata));
+		if (bankOpen())
+		{
+			// A layer shown in the bank follows its items: one taken out leaves it, and an empty layer closes.
+			BankView.Change change = BankView.change(bankTags.getActiveTag(), BankView.LAYER, layerBefore, layerView);
+			if (change == BankView.Change.CLOSE)
+			{
+				closeView();
+			}
+			else if (change == BankView.Change.LAYOUT)
+			{
+				bankSearch.layoutBank();
+			}
+		}
 		strata.getOldest().forEach(o -> describe(o.getItemId()));
 		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + strata.fingerprint() + "|" + state + "|" + name + "|" + alch
 			+ "|" + ironman + "|" + toGetKey(shownToGet)

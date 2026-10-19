@@ -67,6 +67,15 @@ public class StewardPanel extends PluginPanel
 		default void showInBank(String view)
 		{
 		}
+
+		/**
+		 * Shows the bank filtered to one layer of the bank by age.
+		 *
+		 * @param from where the layer starts, in days untouched
+		 */
+		default void showLayer(int from)
+		{
+		}
 	}
 
 	/** The guided clear-out: the plan for the list now, and the clear-out under way, if any. */
@@ -711,7 +720,7 @@ public class StewardPanel extends PluginPanel
 		if (!extras.strata.isEmpty())
 		{
 			// The whole bank by age first: what is kept is easier to judge against it.
-			stack.add(new StrataCard(extras.strata, icons, names));
+			stack.add(new StrataCard(extras.strata, icons, names, actions == null ? null : actions::showLayer));
 		}
 		List<Advice> list = reckoning.getKept();
 		if (list.isEmpty() && extras.keptPlaceholders.isEmpty())

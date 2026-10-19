@@ -18,33 +18,32 @@ public final class Format
 	{
 	}
 
-	/** "8,240", "41.2k", "412k", "1.24M". */
+	private static final String[] UNITS = {"k", "M", "B"};
+
+	/**
+	 * "8,240", "41.2k", "412k", "1.24M", "3.60M", "26.0M": in full below 10,000, otherwise always
+	 * three figures, so amounts side by side on a card read to the same precision (a trailing
+	 * zero is kept rather than dropped, which would turn "26.0M" beside "98.7M" into "26M").
+	 */
 	public static String amount(long n)
 	{
 		if (n < 10_000)
 		{
 			return String.format(Locale.ENGLISH, "%,d", n);
 		}
-		if (n < 100_000)
+		double value = n / 1_000.0;
+		int unit = 0;
+		while (value >= 999.5 && unit < UNITS.length - 1)
 		{
-			return trim(n / 1_000.0, 1) + "k";
+			value /= 1_000;
+			unit++;
 		}
-		if (n < 1_000_000)
-		{
-			return Math.round(n / 1_000.0) + "k";
-		}
-		if (n < 10_000_000)
-		{
-			return trim(n / 1_000_000.0, 2) + "M";
-		}
-		if (n < 1_000_000_000)
-		{
-			return trim(n / 1_000_000.0, 1) + "M";
-		}
-		return trim(n / 1_000_000_000.0, 2) + "B";
+		// Rounding can carry into the next band (9.996M is "10.0M", not "10.00M").
+		int places = value >= 99.95 ? 0 : value >= 9.995 ? 1 : 2;
+		return String.format(Locale.ENGLISH, "%." + places + "f", value) + UNITS[unit];
 	}
 
-	/** Coins in the short form, negative amounts with a minus: "812.4M", "-45.2k". */
+	/** Coins in the short form, negative amounts with a minus: "812M", "-45.2k". */
 	public static String coins(long gp)
 	{
 		return gp < 0 ? "-" + amount(-gp) : amount(gp);
@@ -89,16 +88,6 @@ public final class Format
 			return minutes / 60 + "h ago";
 		}
 		return minutes / (24 * 60) + "d ago";
-	}
-
-	private static String trim(double value, int places)
-	{
-		String text = String.format(Locale.ENGLISH, "%." + places + "f", value);
-		while (text.contains(".") && (text.endsWith("0") || text.endsWith(".")))
-		{
-			text = text.substring(0, text.length() - 1);
-		}
-		return text;
 	}
 
 	/** "2h 14m", "38m", "under a minute". */

@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import org.junit.Test;
 
@@ -106,5 +107,71 @@ public class StrataTest
 		assertTrue("nothing has lain still a day yet", s.getOldest().isEmpty());
 		// A day on, both have lain still a day.
 		assertEquals(2, Strata.of(memory, memory.getBank(), 501).getOldest().size());
+	}
+
+	@Test
+	public void itemsEquallyDeepAreRankedByWhatTheyAreWorth()
+	{
+		// Watched 200 days and nothing moved: every item ties at "6 months or more". The deepest
+		// were once just the ten lowest ids (a bronze dagger before a twisted bow); now the most
+		// valuable stacks lie at the bottom of the vault.
+		Memory memory = new Memory();
+		Map<Integer, Long> bank = new HashMap<>();
+		for (int id = 1; id <= 14; id++)
+		{
+			bank.put(id, 1L);
+		}
+		bank.put(20997, 1L);
+		bank.put(385, 500L);
+		memory.observeBank(bank, 0);
+		Map<Integer, Long> prices = new HashMap<>();
+		prices.put(20997, 1_500_000_000L);
+		prices.put(385, 900L);
+		prices.put(7, 10L);
+		Strata s = Strata.of(memory, memory.getBank(), 200, id -> prices.getOrDefault(id, 0L));
+		assertEquals(Strata.OLDEST, s.getOldest().size());
+		assertEquals(20997, s.getOldest().get(0).getItemId());
+		assertEquals(1_500_000_000L, s.getOldest().get(0).getValue());
+		assertEquals("500 sharks outweigh one", 385, s.getOldest().get(1).getItemId());
+		assertEquals(7, s.getOldest().get(2).getItemId());
+		// Unpriced items keep the steady order by id behind them.
+		assertEquals(1, s.getOldest().get(3).getItemId());
+		// Age still comes first: the bow moved more recently, so the fifteen older items fill the ten.
+		Memory mixed = new Memory();
+		mixed.observeBank(bank, 0);
+		mixed.observeHeld(Arrays.asList(20997), 100);
+		Strata m = Strata.of(mixed, mixed.getBank(), 200, id -> prices.getOrDefault(id, 0L));
+		assertEquals(385, m.getOldest().get(0).getItemId());
+		for (Strata.Old o : m.getOldest())
+		{
+			assertTrue(o.getItemId() != 20997);
+		}
+	}
+
+	@Test
+	public void eachLayerKnowsItsItemsSoAClickCanShowThemInTheBank()
+	{
+		Memory memory = new Memory();
+		Map<Integer, Long> bank = new HashMap<>();
+		bank.put(4151, 1L);
+		bank.put(385, 100L);
+		bank.put(1127, 1L);
+		bank.put(995, 5_000_000L);
+		memory.observeBank(bank, 0);
+		memory.observeHeld(Arrays.asList(385), 195);
+		memory.observeHeld(Arrays.asList(4151), 150);
+		Strata s = Strata.of(memory, memory.getBank(), 200);
+		assertEquals(new HashSet<>(Arrays.asList(385)), s.itemsFrom(0));
+		assertEquals(new HashSet<>(Arrays.asList(4151)), s.itemsFrom(30));
+		// The deepest layer reached holds what has not moved since watching began; coins are in none.
+		assertEquals(new HashSet<>(Arrays.asList(1127)), s.itemsFrom(180));
+		assertTrue("not reached in 200 days", s.itemsFrom(365).isEmpty());
+		int sum = 0;
+		for (Strata.Layer l : s.getLayers())
+		{
+			assertEquals(l.getCount(), l.getItems().size());
+			sum += l.getItems().size();
+		}
+		assertEquals(s.getTotal(), sum);
 	}
 }

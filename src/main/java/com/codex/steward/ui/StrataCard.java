@@ -4,18 +4,24 @@ import com.codex.steward.core.Strata;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Composite;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FontMetrics;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Shape;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntConsumer;
 import java.util.function.IntFunction;
 import javax.swing.JComponent;
+import javax.swing.SwingUtilities;
 
 /**
  * The bank as a core sample: a column of rock, newest layer on top, each as tall as the kinds of
@@ -50,8 +56,20 @@ class StrataCard extends JComponent
 	private final int coreH;
 	private final int vaultY;
 	private final int height;
+	/** Whether a layer can be clicked to show it in the bank. */
+	private final boolean clickable;
+	/** The layer under the pointer, lit as it would be shown, or -1. */
+	private int hovered = -1;
+	/** Room for the line that says the layers can be clicked. */
+	private static final int HINT = 14;
 
 	StrataCard(Strata strata, ItemIcons icons, Map<Integer, String> names)
+	{
+		this(strata, icons, names, null);
+	}
+
+	/** @param showLayer shows a clicked layer in the bank, by where it starts in days; null for none */
+	StrataCard(Strata strata, ItemIcons icons, Map<Integer, String> names, IntConsumer showLayer)
 	{
 		this.strata = strata;
 		this.icons = icons;
@@ -60,7 +78,8 @@ class StrataCard extends JComponent
 		coreH = Math.max(CORE_H, layers * BAND_MIN);
 		int rows = (strata.getOldest().size() + PER_ROW - 1) / PER_ROW;
 		vaultY = TOP + coreH + 16;
-		height = vaultY + (rows == 0 ? 0 : 18 + rows * (WELL_H + 14)) + 26;
+		clickable = showLayer != null;
+		height = vaultY + (rows == 0 ? 0 : 18 + rows * (WELL_H + 14)) + 26 + (clickable ? HINT : 0);
 		setOpaque(false);
 		setPreferredSize(new Dimension(10, height));
 		setMinimumSize(new Dimension(10, height));
@@ -70,6 +89,65 @@ class StrataCard extends JComponent
 			tip.append("<br>").append(Ui.escape(this.names.apply(o.getItemId()))).append(", ").append(age(o));
 		}
 		setToolTipText(strata.getOldest().isEmpty() ? null : tip.append("</html>").toString());
+		if (clickable)
+		{
+			addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mouseReleased(MouseEvent e)
+				{
+					int i = layerAt(e.getX(), e.getY());
+					if (SwingUtilities.isLeftMouseButton(e) && i >= 0)
+					{
+						showLayer.accept(strata.getLayers().get(i).getFrom());
+					}
+				}
+
+				@Override
+				public void mouseExited(MouseEvent e)
+				{
+					hover(-1);
+				}
+			});
+			addMouseMotionListener(new MouseMotionAdapter()
+			{
+				@Override
+				public void mouseMoved(MouseEvent e)
+				{
+					hover(layerAt(e.getX(), e.getY()));
+				}
+			});
+		}
+	}
+
+	/** The layer under a point of the core sample or its labels, or -1. */
+	int layerAt(int x, int y)
+	{
+		if (y < TOP || y >= TOP + coreH || x < PAD || x > getWidth() - PAD)
+		{
+			return -1;
+		}
+		int[] bands = bands(strata.getLayers(), strata.getTotal(), coreH);
+		int top = TOP;
+		for (int i = 0; i < bands.length; i++)
+		{
+			if (y < top + bands[i])
+			{
+				return i;
+			}
+			top += bands[i];
+		}
+		return -1;
+	}
+
+	private void hover(int layer)
+	{
+		if (layer != hovered)
+		{
+			hovered = layer;
+			setCursor(layer >= 0 ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+			repaint();
+		}
 	}
 
 	/** Band heights for the layers: every layer gets room for its label, the rest goes by count. */
@@ -251,7 +329,13 @@ class StrataCard extends JComponent
 			String count = Format.amount(layer.getCount());
 			int cw = small.stringWidth(count);
 			String name = layer.getName();
-			g.setColor(layer.getCount() == 0 ? Theme.TEXT_FAINT : Theme.TEXT);
+			if (i == hovered)
+			{
+				// The layer under the pointer, lit as the one a click shows in the bank.
+				g.setColor(Theme.alpha(Theme.GOLD, 28));
+				g.fillRoundRect(lx - 4, y + 1, w - PAD - lx + 6, bh - 2, 6, 6);
+			}
+			g.setColor(layer.getCount() == 0 ? Theme.TEXT_FAINT : i == hovered ? Theme.GOLD_BRIGHT : Theme.TEXT);
 			g.drawString(Ui.clip(name, small, lw - cw - 8), lx, base);
 			Ui.shadowed(g, count, w - PAD - cw, base, i >= 4 ? Theme.TEXT_MUTED : c);
 			// A hairline from the band to its label, so a thin band still points at its own.
@@ -264,7 +348,10 @@ class StrataCard extends JComponent
 		List<Strata.Old> oldest = strata.getOldest();
 		if (!oldest.isEmpty())
 		{
-			SectionHeader.paint(g, "Deepest in the vault", null, PAD, vaultY, w - PAD * 2, 16);
+			// When every one has lain still as long (all of them since watching began, say), one age
+			// in the heading says it, and each well says what its stack is worth instead.
+			String shared = sharedAge(oldest);
+			SectionHeader.paint(g, "Deepest in the vault", shared == null ? null : "all " + shared, PAD, vaultY, w - PAD * 2, 16);
 			int gap = (w - PAD * 2 - PER_ROW * WELL_W) / Math.max(1, PER_ROW - 1);
 			for (int i = 0; i < oldest.size(); i++)
 			{
@@ -288,16 +375,54 @@ class StrataCard extends JComponent
 				}
 				g.setPaint(new GradientPaint(0, wy, Theme.alpha(Theme.DUST, 0), 0, wy + WELL_H, Theme.alpha(Theme.DUST, (int) Math.min(70, o.getDays() / 4))));
 				g.fill(well);
-				String a = shortAge(o);
-				g.setColor(Theme.TEXT_FAINT);
+				// An item with no price (untradeable) has nothing to say under it once the age is in the heading.
+				String a = shared == null ? shortAge(o) : o.getValue() > 0 ? Format.coins(o.getValue()) : "";
+				g.setColor(shared == null ? Theme.TEXT_FAINT : Theme.GOLD_DIM);
 				g.drawString(a, wx + (WELL_W - small.stringWidth(a)) / 2, wy + WELL_H + small.getAscent() + 1);
 			}
 		}
 
 		g.setColor(Theme.TEXT_FAINT);
-		// Ages are only known back to the first look, so the foot says how far that is.
-		String foot = strata.getWatched() <= 0 ? "Watching began today" : "Watching for " + Format.days(strata.getWatched());
-		g.drawString(Ui.clip(foot, small, w - PAD * 2), PAD, height - 9);
+		int footY = height - 9 - (clickable ? HINT : 0);
+		g.drawString(Ui.clip(foot(strata.getWatched()), small, w - PAD * 2), PAD, footY);
+		if (clickable)
+		{
+			g.setColor(Theme.GOLD_DIM);
+			g.drawString(Ui.clip("Click a layer to see it in your bank", small, w - PAD * 2), PAD, footY + HINT);
+		}
 		g.dispose();
+	}
+
+	/**
+	 * The line at the foot. Until three months are watched the headline already says how long
+	 * watching has run, so the foot says when the share of the bank lying still will show instead;
+	 * after that the headline is the share, and the foot says how far back ages are known.
+	 */
+	static String foot(long watched)
+	{
+		if (watched < Strata.DEEP)
+		{
+			long left = Strata.DEEP - Math.max(0, watched);
+			return "The 3-month share shows in " + Format.days(left);
+		}
+		return "Watching for " + Format.days(watched);
+	}
+
+	/** The short age every one of these shares, or null when they differ. */
+	static String sharedAge(List<Strata.Old> oldest)
+	{
+		if (oldest.size() < 2)
+		{
+			return null;
+		}
+		String first = shortAge(oldest.get(0));
+		for (Strata.Old o : oldest)
+		{
+			if (!shortAge(o).equals(first))
+			{
+				return null;
+			}
+		}
+		return first;
 	}
 }

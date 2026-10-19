@@ -22,6 +22,8 @@ public final class BankView
 	public static final String CLEAR_OUT = "steward";
 	/** Potions to decant and empty placeholders to release. */
 	public static final String TIDY = "steward-tidy";
+	/** One layer of the bank by age, the one last clicked on the layers card. */
+	public static final String LAYER = "steward-layer";
 
 	public static final BankView EMPTY = new BankView(Collections.emptySet());
 	/** The key under which Bank Tags remembers the tab open when the bank closed, to open it again next visit. */
@@ -85,6 +87,12 @@ public final class BankView
 	 *
 	 * @param placeholders the placeholders' own item ids, as the bank holds them (not the items they wait for)
 	 */
+	/** The items of one layer of the bank by age. */
+	public static BankView layer(Collection<Integer> items)
+	{
+		return items == null || items.isEmpty() ? EMPTY : new BankView(new HashSet<>(items));
+	}
+
 	public static BankView tidy(Collection<Integer> placeholders, List<Tidy.Decant> decants)
 	{
 		Set<Integer> ids = new HashSet<>(placeholders);
@@ -98,7 +106,7 @@ public final class BankView
 	/** Whether a bank tag is one of the Steward's views. */
 	public static boolean isOurs(String tag)
 	{
-		return CLEAR_OUT.equals(tag) || TIDY.equals(tag);
+		return CLEAR_OUT.equals(tag) || TIDY.equals(tag) || LAYER.equals(tag);
 	}
 
 	/**
@@ -205,9 +213,10 @@ public final class BankView
 			case TAGS_OFF:
 				return "turn on RuneLite's Bank Tags plugin to show the list in your bank.";
 			case NOTHING:
-				return "there is nothing on that list to show.";
+				return LAYER.equals(tag) ? "nothing in your bank lies in that layer." : "there is nothing on that list to show.";
 			default:
-				return "open your bank first, then press Show in bank. Searching tag:" + tag + " in the bank shows it too.";
+				return (LAYER.equals(tag) ? "open your bank first, then click a layer of your bank in layers."
+					: "open your bank first, then press Show in bank.") + " Searching tag:" + tag + " in the bank shows it too.";
 		}
 	}
 
