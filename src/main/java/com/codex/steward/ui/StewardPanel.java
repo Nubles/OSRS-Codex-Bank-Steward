@@ -8,6 +8,7 @@ import com.codex.steward.core.Placeholders;
 import com.codex.steward.core.Reckoning;
 import com.codex.steward.core.SavingsGoal;
 import com.codex.steward.core.Shortfall;
+import com.codex.steward.core.Strata;
 import com.codex.steward.core.Tidy;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
@@ -97,6 +98,7 @@ public class StewardPanel extends PluginPanel
 		final List<Integer> keptPlaceholders;
 		final List<Tidy.Decant> decants;
 		final SavingsGoal goal;
+		final Strata strata;
 
 		/**
 		 * @param placeholders empty placeholders worth releasing
@@ -106,10 +108,18 @@ public class StewardPanel extends PluginPanel
 		 */
 		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal)
 		{
+			this(placeholders, keptPlaceholders, decants, goal, null);
+		}
+
+		/** @param strata the bank in layers by age, or null */
+		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal,
+			Strata strata)
+		{
 			this.placeholders = placeholders == null ? Collections.emptyList() : placeholders;
 			this.keptPlaceholders = keptPlaceholders == null ? Collections.emptyList() : keptPlaceholders;
 			this.decants = decants == null ? Collections.emptyList() : decants;
 			this.goal = goal;
+			this.strata = strata == null ? Strata.EMPTY : strata;
 		}
 
 		/** Slots tidying wins back. */
@@ -128,6 +138,8 @@ public class StewardPanel extends PluginPanel
 	private final JScrollPane clear = scroller();
 	private final JScrollPane needed = scroller();
 	private final JScrollPane kept = scroller();
+	/** Which pages still show an older reckoning; a page is only rebuilt when it is looked at. */
+	private final boolean[] stale = {true, true, true};
 
 	private Reckoning reckoning;
 	private Clearing clearing = new Clearing(null, null, null);
@@ -162,7 +174,7 @@ public class StewardPanel extends PluginPanel
 		content.add(kept, TABS[2]);
 		add(content, BorderLayout.CENTER);
 		tabs.onChange(this::showTab);
-		rebuild();
+		refresh(true);
 	}
 
 	private static JScrollPane scroller()
@@ -215,11 +227,12 @@ public class StewardPanel extends PluginPanel
 		rebuild();
 	}
 
-	/** Opens one tab, for previews and tests. */
+	/** Opens one tab, building it if it is out of date. */
 	public void showTab(int index)
 	{
 		tabs.setSelected(index, false);
 		cards.show(content, TABS[index]);
+		refresh(true);
 	}
 
 	private void updateCrest(String player)
@@ -242,11 +255,47 @@ public class StewardPanel extends PluginPanel
 		return (reckoning == null ? 0 : reckoning.getKept().size()) + extras.keptPlaceholders.size();
 	}
 
+	/** Marks every page out of date, and rebuilds the one in view if the panel is open. */
 	private void rebuild()
 	{
-		rebuildClear();
-		rebuildNeeded();
-		rebuildKept();
+		Arrays.fill(stale, true);
+		refresh(false);
+	}
+
+	@Override
+	public void onActivate()
+	{
+		refresh(true);
+	}
+
+	/**
+	 * Rebuilds the page in view if it is out of date. A bank visit changes the reckoning many times,
+	 * so while the panel is closed nothing is rebuilt, and while it is open only the page in view is.
+	 */
+	private void refresh(boolean force)
+	{
+		if (!force && !isShowing())
+		{
+			return;
+		}
+		int page = tabs.getSelected();
+		if (page < 0 || page >= stale.length || !stale[page])
+		{
+			return;
+		}
+		stale[page] = false;
+		if (page == 0)
+		{
+			rebuildClear();
+		}
+		else if (page == 1)
+		{
+			rebuildNeeded();
+		}
+		else
+		{
+			rebuildKept();
+		}
 	}
 
 	private boolean waiting(StackPanel stack)
@@ -658,6 +707,11 @@ public class StewardPanel extends PluginPanel
 		{
 			replace(kept, stack);
 			return;
+		}
+		if (!extras.strata.isEmpty())
+		{
+			// The whole bank by age first: what is kept is easier to judge against it.
+			stack.add(new StrataCard(extras.strata, icons, names));
 		}
 		List<Advice> list = reckoning.getKept();
 		if (list.isEmpty() && extras.keptPlaceholders.isEmpty())

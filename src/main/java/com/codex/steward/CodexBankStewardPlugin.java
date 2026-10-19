@@ -12,6 +12,7 @@ import com.codex.steward.core.Plans;
 import com.codex.steward.core.Reckoning;
 import com.codex.steward.core.SavingsGoal;
 import com.codex.steward.core.Shortfall;
+import com.codex.steward.core.Strata;
 import com.codex.steward.core.Task;
 import com.codex.steward.core.Tidy;
 import com.codex.steward.overlay.BankMarks;
@@ -1236,7 +1237,9 @@ public class CodexBankStewardPlugin extends Plugin
 				bankSearch.layoutBank();
 			}
 		}
-		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + state + "|" + name + "|" + alch
+		Strata strata = shown == null || memory == null ? Strata.EMPTY : Strata.of(memory, memory.getBank(), today());
+		strata.getOldest().forEach(o -> describe(o.getItemId()));
+		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + strata.fingerprint() + "|" + state + "|" + name + "|" + alch
 			+ "|" + ironman + "|" + toGetKey(shownToGet)
 			+ "|" + (shownPlan == null ? 0 : shownPlan.totalGain()) + "|" + (session == null ? -1 : session.getStarted() + ":" + session.getItems().size())
 			+ "|" + cleared + "|" + extrasKey(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal) + "|" + releasable;
@@ -1250,7 +1253,7 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			StewardPanel.Clearing clearing = new StewardPanel.Clearing(shownPlan, session, cleared);
 			boolean iron = ironman;
-			StewardPanel.Extras extras = new StewardPanel.Extras(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal);
+			StewardPanel.Extras extras = new StewardPanel.Extras(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal, strata);
 			SwingUtilities.invokeLater(() -> target.update(shown, clearing, shownToGet, shownNames, name, state, alch, iron, extras));
 		}
 	}
