@@ -111,6 +111,24 @@ class StrataCard extends JComponent
 		return o.isAtLeast() ? text + " or more" : text;
 	}
 
+	/**
+	 * A share as a whole percentage that never rounds to all or none when it is not: 199 of 200 is
+	 * 99%, and 1 of 400 is under 1%.
+	 */
+	static String share(int part, int whole)
+	{
+		if (whole <= 0 || part <= 0)
+		{
+			return "0%";
+		}
+		if (part >= whole)
+		{
+			return "100%";
+		}
+		long pct = Math.round(100.0 * part / whole);
+		return pct < 1 ? "<1%" : Math.min(99, pct) + "%";
+	}
+
 	/** The short age under an icon: "45d", "8mo", "2y", with a plus when it may be older. */
 	static String shortAge(Strata.Old o)
 	{
@@ -153,7 +171,7 @@ class StrataCard extends JComponent
 		if (strata.getWatched() >= Strata.DEEP)
 		{
 			int pct = (int) Math.round(100.0 * strata.getDeep() / Math.max(1, strata.getTotal()));
-			figure = pct + "%";
+			figure = share(strata.getDeep(), strata.getTotal());
 			says = "unmoved in 3 months";
 			tint = pct >= 50 ? Theme.OUTCLASSED : Theme.DUST;
 		}
