@@ -465,7 +465,8 @@ public class StewardPanel extends PluginPanel
 	/** The done-with and dusty lists, as the Steward sees them before a clear-out. */
 	private void lists(StackPanel stack, List<Advice> spent, List<Advice> dust)
 	{
-		stack.add(new SectionHeader("Their work is done", spent.isEmpty() ? null : Format.coins(value(spent))));
+		// The tiles above give each list's worth; the headings do not say it a second time.
+		stack.add(new SectionHeader("Their work is done"));
 		if (spent.isEmpty())
 		{
 			stack.add(note("Nothing spent yet", "Items bought or kept for a quest or diary land here once every quest and diary that needs them is done."));
@@ -476,7 +477,7 @@ public class StewardPanel extends PluginPanel
 			more(stack, spent);
 		}
 
-		stack.add(new SectionHeader("Gathering dust", dust.isEmpty() ? null : Format.coins(value(dust))));
+		stack.add(new SectionHeader("Gathering dust"));
 		if (reckoning.getWatchedDays() < reckoning.getDustDays())
 		{
 			stack.add(new DustWatch(reckoning.getWatchedDays(), reckoning.getDustDays()));
