@@ -399,8 +399,12 @@ public class CodexBankStewardPlugin extends Plugin
 			List<String> goals = Plans.readGoals(gson, configManager.getConfiguration(Plans.NAVIGATOR, profile, Plans.GOALS_KEY));
 			read = new Plans(kits, goals);
 		}
-		plans = read;
-		reckonDirty = true;
+		// Quartermaster saves "quarters" whenever the bank changes; only a real change re-reckons.
+		if (!read.equals(plans))
+		{
+			plans = read;
+			reckonDirty = true;
+		}
 	}
 
 	@Subscribe
@@ -700,6 +704,7 @@ public class CodexBankStewardPlugin extends Plugin
 			memory = new Memory();
 		}
 		unsaved = false;
+		reckonDirty = true;
 		readPlans();
 	}
 

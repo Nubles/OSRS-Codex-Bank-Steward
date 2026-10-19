@@ -38,7 +38,7 @@ public class PlansTest
 			+ "{\"supply\":\"NEW_GROUP\",\"perTrip\":4,\"items\":{\"99999\":1,\"bad\":2}}]},"
 			+ "{\"id\":\"preset:vorkath\",\"name\":\"Vorkath\",\"preset\":true,\"needs\":[{\"supply\":\"item:11865\",\"items\":{\"11865\":1}}]},"
 			+ "{\"id\":\"preset:zulrah\",\"name\":\"Zulrah\",\"preset\":true,\"needs\":[{\"supply\":\"item:12938\",\"items\":{\"12938\":1}}]}]}";
-		List<Plans.Kit> kits = Plans.readKits(GSON, v1, "{\"kits\":[{\"id\":\"kit:9\",\"name\":\"Ignored\",\"needs\":[]}]}");
+		List<Plans.Kit> kits = Plans.readKits(GSON, v1, "{\"active\":\"preset:vorkath\",\"kits\":[{\"id\":\"kit:9\",\"name\":\"Ignored\",\"needs\":[]}]}");
 		assertEquals(2, kits.size());
 		assertEquals("Slayer", kits.get(0).getName());
 		assertEquals(new java.util.LinkedHashSet<>(Arrays.asList(385, 13441, 8013, 99999)), kits.get(0).getItems());

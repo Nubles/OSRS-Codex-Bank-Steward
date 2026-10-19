@@ -1,0 +1,1 @@
+{"bank":{"560":5000,"385":300},"bankSeen":1000,"kits":[{"id":"kit:1","name":"Slayer \"Konar\"","needs":[{"supply":"FOOD","perTrip":200},{"supply":"item:560","perTrip":200},{"supply":"item:952","perTrip":0},{"supply":"PRAYER","perTrip":16}]}],"active":"kit:1","target":10,"usage":{},"saved":1,"stored":{},"iron":false}

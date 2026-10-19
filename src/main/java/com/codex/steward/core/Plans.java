@@ -58,6 +58,18 @@ public final class Plans
 		{
 			return items;
 		}
+
+		@Override
+		public boolean equals(Object o)
+		{
+			return o instanceof Kit && name.equals(((Kit) o).name) && items.equals(((Kit) o).items);
+		}
+
+		@Override
+		public int hashCode()
+		{
+			return name.hashCode() * 31 + items.hashCode();
+		}
 	}
 
 	private final List<Kit> kits;
@@ -88,6 +100,18 @@ public final class Plans
 	public boolean isEmpty()
 	{
 		return kits.isEmpty() && goals.isEmpty();
+	}
+
+	@Override
+	public boolean equals(Object o)
+	{
+		return o instanceof Plans && kits.equals(((Plans) o).kits) && goals.equals(((Plans) o).goals);
+	}
+
+	@Override
+	public int hashCode()
+	{
+		return kits.hashCode() * 31 + goals.hashCode();
 	}
 
 	/** Every kit that takes each item, in kit order. */
@@ -196,26 +220,34 @@ public final class Plans
 	/**
 	 * Reads Quartermaster's kits: every saved kit, and the chosen kit when it is a preset, since
 	 * the player is using it. Prefers {@code kitsV1}, falling back on the older {@code quarters}.
+	 *
+	 * <p>{@code kitsV1} always names an active kit: with none chosen and none saved, Quartermaster
+	 * shows its first preset. That preset is not the player's choice, so a preset only counts when
+	 * {@code quarters} says it was chosen; {@code kitsV1}'s word is taken only when {@code quarters}
+	 * cannot be read.</p>
 	 */
 	public static List<Kit> readKits(Gson gson, String kitsV1, String quarters)
 	{
 		JsonElement v1 = parse(gson, kitsV1);
+		JsonElement old = parse(gson, quarters);
+		boolean oldOk = old != null && old.isJsonObject();
 		if (v1 != null && v1.isJsonObject())
 		{
-			return readV1(v1.getAsJsonObject());
+			JsonObject root = v1.getAsJsonObject();
+			String chosen = oldOk ? string(old.getAsJsonObject(), "active") : string(root, "active");
+			return readV1(root, chosen);
 		}
-		JsonElement old = parse(gson, quarters);
-		if (old != null && old.isJsonObject())
+		if (oldOk)
 		{
 			return readQuarters(old.getAsJsonObject());
 		}
 		return new ArrayList<>();
 	}
 
-	private static List<Kit> readV1(JsonObject root)
+	/** @param active the preset the player chose, or null */
+	private static List<Kit> readV1(JsonObject root, String active)
 	{
 		List<Kit> out = new ArrayList<>();
-		String active = string(root, "active");
 		for (JsonObject kit : objects(root, "kits"))
 		{
 			String id = string(kit, "id");
