@@ -11,6 +11,7 @@ import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.Map;
 import java.util.Set;
 import net.runelite.api.widgets.WidgetItem;
@@ -48,6 +49,37 @@ public class BankMarks extends WidgetItemOverlay
 		this.enabled = enabled;
 	}
 
+	// Everything a mark is drawn with, made once: the bank draws every slot every frame.
+	private static final BasicStroke THIN = new BasicStroke(1f);
+	private static final BasicStroke EDGE = new BasicStroke(2f);
+	private static final BasicStroke RING_EDGE = new BasicStroke(3f);
+	private static final BasicStroke RING = new BasicStroke(1.4f);
+	private static final BasicStroke DASHED = new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 1f, new float[]{3f, 3f}, 0f);
+	private static final BasicStroke CROSS_EDGE = new BasicStroke(3.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+	private static final BasicStroke CROSS = new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+	private static final Color RELEASE_RIM = Theme.alpha(Theme.TEXT_MUTED, 110);
+	private static final Map<Advice.Verdict, Color> RIMS = new EnumMap<>(Advice.Verdict.class);
+	/** The badge shapes, centred on the origin. */
+	private static final Path2D DIAMOND = new Path2D.Float();
+	private static final Ellipse2D BADGE_RING = new Ellipse2D.Float(-3.5f, -3.5f, 7, 7);
+	private static final Line2D CROSS_A = new Line2D.Float(-3, -3, 3, 3);
+	private static final Line2D CROSS_B = new Line2D.Float(-3, 3, 3, -3);
+
+	static
+	{
+		for (Advice.Verdict v : Advice.Verdict.values())
+		{
+			RIMS.put(v, Theme.alpha(Theme.verdict(v), 70));
+		}
+		DIAMOND.moveTo(0, -4.5f);
+		DIAMOND.lineTo(4.5f, 0);
+		DIAMOND.lineTo(0, 4.5f);
+		DIAMOND.lineTo(-4.5f, 0);
+		DIAMOND.closePath();
+	}
+
+	private final RoundRectangle2D rim = new RoundRectangle2D.Float();
+
 	@Override
 	public void renderItemOverlay(Graphics2D g, int itemId, WidgetItem item)
 	{
@@ -67,55 +99,53 @@ public class BankMarks extends WidgetItemOverlay
 		}
 		Rectangle r = item.getCanvasBounds();
 		Theme.smooth(g);
-		Color color = Theme.verdict(verdict);
-		g.setStroke(new BasicStroke(1f));
-		g.setColor(Theme.alpha(color, 70));
-		g.draw(new RoundRectangle2D.Float(r.x + 0.5f, r.y + 0.5f, r.width - 1, r.height - 1, 6, 6));
+		g.setStroke(THIN);
+		g.setColor(RIMS.get(verdict));
+		rim.setRoundRect(r.x + 0.5f, r.y + 0.5f, r.width - 1, r.height - 1, 6, 6);
+		g.draw(rim);
 
-		float cx = r.x + r.width - 5.5f;
-		float cy = r.y + r.height - 5.5f;
+		double cx = r.x + r.width - 5.5;
+		double cy = r.y + r.height - 5.5;
+		g.translate(cx, cy);
 		if (verdict == Advice.Verdict.SPENT)
 		{
-			Path2D diamond = new Path2D.Float();
-			diamond.moveTo(cx, cy - 4.5f);
-			diamond.lineTo(cx + 4.5f, cy);
-			diamond.lineTo(cx, cy + 4.5f);
-			diamond.lineTo(cx - 4.5f, cy);
-			diamond.closePath();
 			g.setColor(Theme.INK_DEEP);
-			g.setStroke(new BasicStroke(2f));
-			g.draw(diamond);
+			g.setStroke(EDGE);
+			g.draw(DIAMOND);
 			g.setColor(Theme.GOLD_BRIGHT);
-			g.fill(diamond);
+			g.fill(DIAMOND);
 		}
 		else
 		{
-			Ellipse2D ring = new Ellipse2D.Float(cx - 3.5f, cy - 3.5f, 7, 7);
 			g.setColor(Theme.INK_DEEP);
-			g.setStroke(new BasicStroke(3f));
-			g.draw(ring);
-			g.setColor(color);
-			g.setStroke(new BasicStroke(1.4f));
-			g.draw(ring);
+			g.setStroke(RING_EDGE);
+			g.draw(BADGE_RING);
+			g.setColor(Theme.verdict(verdict));
+			g.setStroke(RING);
+			g.draw(BADGE_RING);
 		}
+		g.translate(-cx, -cy);
 	}
 
 	/** A dashed ash rim and a small cross: an empty placeholder that can be released. */
-	private static void releaseMark(Graphics2D g, Rectangle r)
+	private void releaseMark(Graphics2D g, Rectangle r)
 	{
 		Theme.smooth(g);
-		g.setColor(Theme.alpha(Theme.TEXT_MUTED, 110));
-		g.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 1f, new float[]{3f, 3f}, 0f));
-		g.draw(new RoundRectangle2D.Float(r.x + 0.5f, r.y + 0.5f, r.width - 1, r.height - 1, 6, 6));
-		float cx = r.x + r.width - 5.5f;
-		float cy = r.y + r.height - 5.5f;
-		g.setStroke(new BasicStroke(3.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.setColor(RELEASE_RIM);
+		g.setStroke(DASHED);
+		rim.setRoundRect(r.x + 0.5f, r.y + 0.5f, r.width - 1, r.height - 1, 6, 6);
+		g.draw(rim);
+		double cx = r.x + r.width - 5.5;
+		double cy = r.y + r.height - 5.5;
+		g.translate(cx, cy);
+		g.setStroke(CROSS_EDGE);
 		g.setColor(Theme.INK_DEEP);
-		g.draw(new Line2D.Float(cx - 3, cy - 3, cx + 3, cy + 3));
-		g.draw(new Line2D.Float(cx - 3, cy + 3, cx + 3, cy - 3));
-		g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.draw(CROSS_A);
+		g.draw(CROSS_B);
+		g.setStroke(CROSS);
 		g.setColor(Theme.TEXT_MUTED);
-		g.draw(new Line2D.Float(cx - 3, cy - 3, cx + 3, cy + 3));
-		g.draw(new Line2D.Float(cx - 3, cy + 3, cx + 3, cy - 3));
+		g.draw(CROSS_A);
+		g.draw(CROSS_B);
+		g.translate(-cx, -cy);
 	}
 }
