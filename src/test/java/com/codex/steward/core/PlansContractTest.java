@@ -88,8 +88,19 @@ public class PlansContractTest
 		assertTrue(chosen.get(1).getItems().contains(ItemID.DRAGON_BOLTS_ENCHANTED_RUBY));
 		assertTrue(chosen.get(1).getItems().contains(ItemID.ANTIVENOM4));
 
-		// Without a readable quarters, kitsV1's own word is taken.
+		// Without a readable quarters, an older kitsV1's own word is taken.
 		assertEquals(1, Plans.readKits(GSON, freshV1, null).size());
+	}
+
+	@Test
+	public void newerQuartermasterNamesNoKitUntilOneIsChosen() throws Exception
+	{
+		// Written by today's KitBook.of for a fresh install: "active" is left out.
+		String unchosen = fixture("quartermaster-unchosen-kitsV1.json");
+		assertFalse(unchosen.contains("\"active\""));
+		assertTrue(unchosen.contains("\"preset:vorkath\""));
+		assertTrue(Plans.readKits(GSON, unchosen, null).isEmpty());
+		assertTrue(Plans.readKits(GSON, unchosen, fixture("quartermaster-fresh-quarters.json")).isEmpty());
 	}
 
 	@Test

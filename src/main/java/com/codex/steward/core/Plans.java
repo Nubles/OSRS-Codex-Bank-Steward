@@ -221,10 +221,10 @@ public final class Plans
 	 * Reads Quartermaster's kits: every saved kit, and the chosen kit when it is a preset, since
 	 * the player is using it. Prefers {@code kitsV1}, falling back on the older {@code quarters}.
 	 *
-	 * <p>{@code kitsV1} always names an active kit: with none chosen and none saved, Quartermaster
-	 * shows its first preset. That preset is not the player's choice, so a preset only counts when
-	 * {@code quarters} says it was chosen; {@code kitsV1}'s word is taken only when {@code quarters}
-	 * cannot be read.</p>
+	 * <p>Older Quartermasters always named an active kit in {@code kitsV1}: with none chosen and
+	 * none saved, the first preset. That preset is not the player's choice, so a preset only counts
+	 * when {@code quarters} says it was chosen; {@code kitsV1}'s word is taken only when
+	 * {@code quarters} cannot be read. Newer ones leave {@code active} out until a kit is chosen.</p>
 	 */
 	public static List<Kit> readKits(Gson gson, String kitsV1, String quarters)
 	{
