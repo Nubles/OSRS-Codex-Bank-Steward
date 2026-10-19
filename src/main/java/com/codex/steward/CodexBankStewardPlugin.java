@@ -208,6 +208,8 @@ public class CodexBankStewardPlugin extends Plugin
 	/** The lists the bank can be shown filtered to, as last published; read by Bank Tags on the client thread. */
 	private BankView clearView = BankView.EMPTY;
 	private BankView tidyView = BankView.EMPTY;
+	/** The player's own bank tab open when Show in bank was pressed, or null; client thread only. */
+	private String tabBefore;
 
 	@Provides
 	CodexBankStewardConfig provideConfig(ConfigManager configManager)
@@ -545,21 +547,32 @@ public class CodexBankStewardPlugin extends Plugin
 		if (event.getGroupId() == InterfaceID.BANKMAIN && event.isUnload())
 		{
 			// Bank Tags remembers the open tab for the next visit; a filtered view lasts one visit.
-			closeView();
+			// The event comes before the bank is gone and before Bank Tags' own handler (subscribers
+			// run in class-name order), so closing now would lay out a bank that is closing: wait
+			// until it has.
+			clientThread.invokeLater(this::closeView);
 		}
 	}
 
 	/**
 	 * Closes the bank's filtered view if it is one of the Steward's, open now or remembered by Bank
-	 * Tags for the next visit. Bank Tags forgets the open view as the bank closes, before this hears
-	 * of it, but remembers its name for the next visit, so both are checked. Client thread only.
+	 * Tags for the next visit. Bank Tags forgets the open view once the bank has closed but
+	 * remembers its name for the next visit, so both are checked. The player's own tab from before
+	 * Show in bank is remembered again in its place. Client thread only.
 	 */
 	private void closeView()
 	{
 		String remembered = configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, BankView.REMEMBERED_TAB_KEY);
+		String before = tabBefore;
+		tabBefore = null;
 		if (BankView.shouldClose(bankTags.getActiveTag(), remembered))
 		{
 			bankTags.closeBankTag();
+			String back = BankView.tabAfterClose(before);
+			if (!back.isEmpty())
+			{
+				configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, BankView.REMEMBERED_TAB_KEY, back);
+			}
 		}
 	}
 
@@ -580,6 +593,11 @@ public class CodexBankStewardPlugin extends Plugin
 					.build())
 				.build());
 			return;
+		}
+		String open = bankTags.getActiveTag();
+		if (!BankView.isOurs(open))
+		{
+			tabBefore = open;
 		}
 		bankTags.openBankTag(tag, BankTagsService.OPTION_NO_LAYOUT);
 	}

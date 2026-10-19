@@ -116,6 +116,19 @@ public final class BankView
 	}
 
 	/**
+	 * The tab Bank Tags should remember for the next visit once a Steward view is closed: the tab the
+	 * player had open before pressing Show in bank, so a look at the clear-out does not cost them
+	 * their own remembered tab. Bank Tags itself would forget it, since opening a view replaces it.
+	 *
+	 * @param before the tag open when Show in bank was pressed, or null for the main bank
+	 * @return the tag to remember, or empty for none
+	 */
+	public static String tabAfterClose(String before)
+	{
+		return before == null || isOurs(before) ? "" : before;
+	}
+
+	/**
 	 * Whether a bank item is on the list.
 	 *
 	 * @param itemId the id as the bank holds it

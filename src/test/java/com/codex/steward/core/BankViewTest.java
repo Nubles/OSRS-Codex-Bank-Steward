@@ -111,4 +111,12 @@ public class BankViewTest
 		assertFalse(BankView.shouldClose("slayer", "slayer"));
 		assertFalse(BankView.shouldClose(null, null));
 	}
+
+	@Test
+	public void closingAViewGivesThePlayerTheirOwnTabBack()
+	{
+		assertEquals("vorkath", BankView.tabAfterClose("vorkath"));
+		assertEquals("pressed from the main bank", "", BankView.tabAfterClose(null));
+		assertEquals("one view opened from the other", "", BankView.tabAfterClose(BankView.CLEAR_OUT));
+	}
 }
