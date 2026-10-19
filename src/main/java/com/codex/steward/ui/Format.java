@@ -18,12 +18,12 @@ public final class Format
 	{
 	}
 
-	private static final String[] UNITS = {"k", "M", "B"};
-
 	/**
-	 * "8,240", "41.2k", "412k", "1.24M", "3.60M", "26.0M": in full below 10,000, otherwise always
-	 * three figures, so amounts side by side on a card read to the same precision (a trailing
-	 * zero is kept rather than dropped, which would turn "26.0M" beside "98.7M" into "26M").
+	 * The suite's one rule for amounts, so figures side by side on a card read alike: in full below
+	 * 10,000 ("8,240"), whole thousands below a million ("41k", "412k"), millions to one decimal
+	 * ("1.2M", "26.0M", "812.4M") and billions to two ("2.10B"). A zero after the point is kept, so
+	 * "26.0M" sits beside "98.7M" rather than "26M". A figure that rounds up into the next unit is
+	 * written in it ("1.0M", not "1000k").
 	 */
 	public static String amount(long n)
 	{
@@ -31,19 +31,18 @@ public final class Format
 		{
 			return String.format(Locale.ENGLISH, "%,d", n);
 		}
-		double value = n / 1_000.0;
-		int unit = 0;
-		while (value >= 999.5 && unit < UNITS.length - 1)
+		if (n < 999_500)
 		{
-			value /= 1_000;
-			unit++;
+			return Math.round(n / 1_000.0) + "k";
 		}
-		// Rounding can carry into the next band (9.996M is "10.0M", not "10.00M").
-		int places = value >= 99.95 ? 0 : value >= 9.995 ? 1 : 2;
-		return String.format(Locale.ENGLISH, "%." + places + "f", value) + UNITS[unit];
+		if (n < 999_950_000)
+		{
+			return String.format(Locale.ENGLISH, "%.1fM", n / 1_000_000.0);
+		}
+		return String.format(Locale.ENGLISH, "%.2fB", n / 1_000_000_000.0);
 	}
 
-	/** Coins in the short form, negative amounts with a minus: "812M", "-45.2k". */
+	/** Coins in the short form, negative amounts with a minus: "812.4M", "-45k". */
 	public static String coins(long gp)
 	{
 		return gp < 0 ? "-" + amount(-gp) : amount(gp);
