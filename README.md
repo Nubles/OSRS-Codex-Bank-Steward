@@ -6,7 +6,7 @@ It is the seventh plugin in the **Codex** suite, after [Codex Navigator](https:/
 
 <p align="center">
   <img src="docs/screenshots/clear-out.png" width="225" alt="Clear out">
-  <img src="docs/screenshots/clear-out-dust.png" width="225" alt="Gathering dust">
+  <img src="docs/screenshots/clear-out-session.png" width="225" alt="A clear-out under way">
   <img src="docs/screenshots/needed.png" width="225" alt="Needed">
 </p>
 
@@ -14,6 +14,10 @@ It is the seventh plugin in the **Codex** suite, after [Codex Navigator](https:/
 
 - **Clear out.** What the list could free in large gilt figures, with the slots it frees. Under it, **Their work is done**: items a finished quest or diary asked for, each with the quest it served (Ham robe, *Death to the Dorgeshuun done*), and **Gathering dust**: items that have not moved for 90 days (you can pick anywhere from 14 days to two years). Each shows what it would sell for, or *Drop* when it can't be traded. Only tradeable items are ever called dusty.
 - **Needed.** Every unfinished quest and diary that is holding something in your bank, with the items it holds and which other quest wants each one too. When a need can be met by any of several items (any pickaxe, say), only the best one you own is shown.
+- **Guided clear-out.** A plan at the top of the page says what the list brings by each route: **sell** on the Grand Exchange (after its 2% tax), **high alch** (after the nature rune) when that pays more, or **drop** when neither brings anything. Ironman accounts alch or drop. Press *Begin the clear-out* and the page becomes a checklist, most valuable first; each item is ticked off once it leaves your bank and pack, with a bar for the slots and gold freed so far and a chat line when it is done.
+- **Kept for your kits and goals.** If you use [Codex Quartermaster](https://github.com/Nubles/OSRS-Codex-Quartermaster), nothing a saved kit takes is ever called done with or dusty: 240 sharks untouched for months stay put, marked *Kit: Vorkath*. If you use [Codex Navigator](https://github.com/Nubles/OSRS-Codex-Navigator), quests on the way to a pinned goal lead the Needed page with a pennant (*On the way to Dragon Slayer II*), and they hold even what they only mention, such as a recommended teleport. The Steward only reads what those plugins save; it works the same without them.
+- **Clue STASH gear.** Gear that fills a clue STASH unit (steel platebody, brown apron and the rest, for every tier) is never called done with because a quest is finished. It can still be dusty, and then says it is STASH gear.
+- **Untradeable dust, if you want it.** An option lists untradeable items untouched past the dust time, apart and under a warning, never in the totals. It is off by default.
 - **Kept.** Click any item on the list to keep it. Kept items stay off the list until you let them go.
 - **Bank marks.** In the bank, items whose work is done carry a small gold diamond and dusty items a ring of ash, so you can clear the list without looking back at the panel.
 - **Ironman friendly.** Values are Grand Exchange prices, or high alchemy on ironman accounts (the *Value items at* option chooses).
@@ -29,21 +33,22 @@ An item is **done with** only when all of these hold:
 
 - a quest, miniquest or diary in the Steward's list asks for it, and every one that names it in any way (asks for it, recommends it, or has you pick it up along the way) is finished on this account;
 - it is not a general good: runes, coins, tools and moulds, potions, teleports, pouches, ores, bars, logs, planks, gems, herbs, seeds, hides, food ingredients, ammunition, slayer gear, or anything named by more than five quests or only as one choice among many;
+- no Codex Quartermaster kit takes it and, unless you turn the guard off, no clue STASH unit takes it;
 - it is not a lasting reward or access item (diary rewards, capes, ghostspeak amulet, ectophial, greegrees, salve amulet, void, the karambwan vessel, the battered key to the Elemental Workshop, the dark totem, Darklight and the like);
 - the stack is no bigger than leftovers from those quests, so 2,000 planks you gathered for Construction are not called spent because a diary once wanted 10;
 - you have not used it in the last 14 days (configurable).
 
-An item is **dusty** when it is tradeable and has not moved for the dust threshold. Untradeable items are never called dusty, since one the Steward cannot explain may be a reward you can't get back. The Steward starts its clock the first time it sees your bank, so dust is only called after it has watched that long; until then the page shows how many days it has watched. An item has moved when its count in the bank changes or whenever you carry or wear it. The bank is remembered as last seen, per account, in your RuneLite profile.
+An item is **dusty** when it is tradeable, no Codex Quartermaster kit takes it, and it has not moved for the dust threshold. Untradeable items are never called dusty, since one the Steward cannot explain may be a reward you can't get back. The Steward starts its clock the first time it sees your bank, so dust is only called after it has watched that long; until then the page shows how many days it has watched. An item has moved when its count in the bank changes or whenever you carry or wear it. The bank is remembered as last seen, per account, in your RuneLite profile.
 
 Nothing is ever sold, dropped or withdrawn for you. The Steward only advises.
 
 ## Where the quest data comes from
 
-The list of which quests and diaries need which items comes from [Quest Helper](https://github.com/Zoinkwiz/quest-helper) (BSD 2-Clause), read by running its own helpers, so it covers 263 quests, miniquests, diary tiers and Recipe for Disaster's parts, including the items each quest only names in its steps. Each part of Recipe for Disaster is read on its own, so a finished part frees its items. `tools/README.md` has the steps to rebuild `steward-data.json` when new quests release.
+Clue STASH gear is read from RuneLite's own emote clue list, and the quests each Navigator goal needs first from Codex Navigator's quest data. The list of which quests and diaries need which items comes from [Quest Helper](https://github.com/Zoinkwiz/quest-helper) (BSD 2-Clause), read by running its own helpers, so it covers 263 quests, miniquests, diary tiers and Recipe for Disaster's parts, including the items each quest only names in its steps. Each part of Recipe for Disaster is read on its own, so a finished part frees its items. `tools/README.md` has the steps to rebuild `steward-data.json` when new quests release.
 
 ## Rules posture
 
-Codex Bank Steward only reads what the game already shows you: your bank, inventory and worn items, quest and diary progress, and RuneLite's own item prices. It does not click, change menus, or send anything over the network.
+Codex Bank Steward only reads what the game already shows you: your bank, inventory and worn items, quest and diary progress, and RuneLite's own item prices, plus the kits and goals Codex Quartermaster and Codex Navigator save in your RuneLite profile, which it never changes. It does not click, change menus, or send anything over the network.
 
 ## Development
 

@@ -1,6 +1,9 @@
 package com.codex.steward.core;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -20,6 +23,107 @@ public final class Memory
 	private Map<Integer, Long> bank = new HashMap<>();
 	private Map<Integer, Long> moved = new HashMap<>();
 	private Set<Integer> keep = new HashSet<>();
+	/** A clear-out under way, or null. */
+	private Session session;
+
+	/** One item a clear-out set out to clear, as it was when the clear-out began. */
+	public static final class Planned
+	{
+		private int item;
+		private long qty;
+		private String route;
+		private long gain;
+
+		public Planned()
+		{
+		}
+
+		public Planned(int item, long qty, ClearOut.Route route, long gain)
+		{
+			this.item = item;
+			this.qty = qty;
+			this.route = route.name();
+			this.gain = gain;
+		}
+
+		public int getItemId()
+		{
+			return item;
+		}
+
+		public long getQuantity()
+		{
+			return qty;
+		}
+
+		public ClearOut.Route getRoute()
+		{
+			try
+			{
+				return route == null ? ClearOut.Route.DROP : ClearOut.Route.valueOf(route);
+			}
+			catch (IllegalArgumentException e)
+			{
+				return ClearOut.Route.DROP;
+			}
+		}
+
+		public long getGain()
+		{
+			return gain;
+		}
+	}
+
+	/** A clear-out the player began: when, and what it set out to clear, in order. */
+	public static final class Session
+	{
+		private long started;
+		private List<Planned> items = new ArrayList<>();
+		/** The chat has said the clear-out is done. */
+		private boolean announced;
+
+		public Session()
+		{
+		}
+
+		public Session(long started, List<Planned> items)
+		{
+			this.started = started;
+			this.items = new ArrayList<>(items);
+		}
+
+		public long getStarted()
+		{
+			return started;
+		}
+
+		public List<Planned> getItems()
+		{
+			return items == null ? Collections.emptyList() : Collections.unmodifiableList(items);
+		}
+
+		public boolean isAnnounced()
+		{
+			return announced;
+		}
+
+		public void setAnnounced(boolean announced)
+		{
+			this.announced = announced;
+		}
+
+		public Planned get(int itemId)
+		{
+			for (Planned p : getItems())
+			{
+				if (p.getItemId() == itemId)
+				{
+					return p;
+				}
+			}
+			return null;
+		}
+	}
 
 	/** Fills in anything a saved copy from an older version lacks. */
 	public Memory repair()
@@ -35,6 +139,14 @@ public final class Memory
 		if (keep == null)
 		{
 			keep = new HashSet<>();
+		}
+		if (session != null && session.items == null)
+		{
+			session = null;
+		}
+		if (session != null)
+		{
+			session.items.removeIf(p -> p == null || p.item <= 0);
 		}
 		return this;
 	}
@@ -132,6 +244,17 @@ public final class Memory
 	public void prune()
 	{
 		moved.keySet().retainAll(bank.keySet());
+	}
+
+	/** The clear-out under way, or null. */
+	public Session getSession()
+	{
+		return session;
+	}
+
+	public void setSession(Session session)
+	{
+		this.session = session;
 	}
 
 	public boolean isKept(int id)

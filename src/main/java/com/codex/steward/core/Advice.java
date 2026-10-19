@@ -16,7 +16,12 @@ public final class Advice
 		/** Still needed by a quest or diary that is not done. */
 		NEEDED,
 		/** The player chose to keep it. */
-		KEPT
+		KEPT,
+		/**
+		 * Would be done with or dusty, but a plan keeps it: a Quartermaster kit, a Navigator goal or
+		 * a clue STASH unit.
+		 */
+		SPARED
 	}
 
 	private final int itemId;
@@ -26,6 +31,9 @@ public final class Advice
 	private final Verdict verdict;
 	private final List<String> tasks;
 	private final long untouchedDays;
+	private List<Claim> claims = Collections.emptyList();
+	private long grandExchange;
+	private long highAlchemy;
 
 	public Advice(int itemId, long quantity, long price, boolean tradeable, Verdict verdict, List<String> tasks, long untouchedDays)
 	{
@@ -79,5 +87,36 @@ public final class Advice
 	public long getUntouchedDays()
 	{
 		return untouchedDays;
+	}
+
+	/** The plans that keep it, or that it serves: kits, goals and STASH units. */
+	public List<Claim> getClaims()
+	{
+		return claims;
+	}
+
+	Advice claims(List<Claim> list)
+	{
+		claims = list == null || list.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(list);
+		return this;
+	}
+
+	/** The Grand Exchange price of one, whatever the list is valued at. */
+	public long getGrandExchange()
+	{
+		return grandExchange;
+	}
+
+	/** What one brings by high alchemy, before the nature rune. */
+	public long getHighAlchemy()
+	{
+		return highAlchemy;
+	}
+
+	Advice prices(long grandExchange, long highAlchemy)
+	{
+		this.grandExchange = Math.max(0, grandExchange);
+		this.highAlchemy = Math.max(0, highAlchemy);
+		return this;
 	}
 }

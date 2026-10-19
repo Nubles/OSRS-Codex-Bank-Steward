@@ -31,7 +31,14 @@ public final class Catalog
 		List<int[]> soft;
 		int[] general;
 		int[] lasting;
+		/** Clue STASH gear: item and a mask of the clue tiers whose STASH units take it. */
+		List<int[]> stash;
+		/** Each Codex Navigator goal key to the tasks it covers, its own and every quest before it. */
+		Map<String, int[]> goals;
 	}
+
+	/** Clue tiers, in the order of the bits of a STASH mask. */
+	public static final String[] CLUE_TIERS = {"beginner", "easy", "medium", "hard", "elite", "master"};
 
 	/** One requirement: a task, a quantity and the items that meet it. */
 	public static final class Need
@@ -76,6 +83,8 @@ public final class Catalog
 	private final Map<Integer, List<Need>> byItem = new HashMap<>();
 	private final Set<Integer> general = new HashSet<>();
 	private final Set<Integer> lasting = new HashSet<>();
+	private final Map<Integer, Integer> stash = new HashMap<>();
+	private final Map<String, int[]> goals = new HashMap<>();
 
 	public Catalog(Data data)
 	{
@@ -95,6 +104,26 @@ public final class Catalog
 			{
 				lasting.add(id);
 			}
+		}
+		if (data.stash != null)
+		{
+			for (int[] pair : data.stash)
+			{
+				if (pair != null && pair.length == 2 && pair[1] != 0)
+				{
+					stash.merge(pair[0], pair[1], (a, b) -> a | b);
+				}
+			}
+		}
+		if (data.goals != null)
+		{
+			data.goals.forEach((key, list) ->
+			{
+				if (key != null && list != null)
+				{
+					goals.put(key, list.clone());
+				}
+			});
 		}
 	}
 
@@ -142,6 +171,35 @@ public final class Catalog
 	public boolean isGeneral(int itemId)
 	{
 		return general.contains(itemId);
+	}
+
+	/** The clue tiers whose STASH units take this item, as a mask of {@link #CLUE_TIERS}; 0 for none. */
+	public int stashTiers(int itemId)
+	{
+		return stash.getOrDefault(itemId, 0);
+	}
+
+	/**
+	 * The tasks a Codex Navigator goal covers, such as {@code quest:Dragon Slayer II}: the quest or
+	 * diary itself and every quest it needs first. Navigator's quest cape goal covers every quest.
+	 * Empty for a goal the Steward does not know.
+	 */
+	public int[] goalTasks(String key)
+	{
+		if (key != null && key.startsWith("cape:"))
+		{
+			List<Integer> all = new ArrayList<>();
+			for (int i = 0; i < tasks.size(); i++)
+			{
+				if (Task.QUEST.equals(tasks.get(i).getKind()))
+				{
+					all.add(i);
+				}
+			}
+			return all.stream().mapToInt(Integer::intValue).toArray();
+		}
+		int[] list = key == null ? null : goals.get(key);
+		return list == null ? new int[0] : list;
 	}
 
 	/** A reward or access item with a use long after the task that names it. */

@@ -100,6 +100,22 @@ public final class Theme
 	public static final Color DUST = ASH;
 	public static final Color NEEDED = TEAL;
 	public static final Color KEPT = VIOLET;
+	/** Kept for a plan: a kit, a goal or a STASH unit. A paler teal than the needed. */
+	public static final Color SPARED = new Color(132, 196, 204);
+
+	/** How a clear-out gets rid of an item: gold for a sale, ember for the fire of an alch, ash for a drop. */
+	public static Color route(com.codex.steward.core.ClearOut.Route route)
+	{
+		switch (route)
+		{
+			case SELL:
+				return GOLD;
+			case ALCH:
+				return EMBER;
+			default:
+				return ASH;
+		}
+	}
 
 	public static Color verdict(Advice.Verdict verdict)
 	{
@@ -111,6 +127,8 @@ public final class Theme
 				return DUST;
 			case NEEDED:
 				return NEEDED;
+			case SPARED:
+				return SPARED;
 			default:
 				return KEPT;
 		}

@@ -90,4 +90,37 @@ public interface CodexBankStewardConfig extends Config
 	{
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "codexPlans",
+		name = "Keep kit and goal items",
+		description = "Never list what a Codex Quartermaster kit takes or what a goal pinned in Codex Navigator needs, and say which kit or goal keeps it. Only reads what those plugins save; it does nothing when they are not installed",
+		position = 5
+	)
+	default boolean codexPlans()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "guardStash",
+		name = "Guard clue STASH gear",
+		description = "Never call gear that fills a clue STASH unit done with, even when every quest that wanted it is done. Dusty STASH gear is still listed, marked as STASH gear",
+		position = 6
+	)
+	default boolean guardStash()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "untradeableDust",
+		name = "Show untradeable dust",
+		description = "Also list untradeable items untouched past the dust time, apart and with a warning. They are never counted in the gold or slots, since one may be a reward you cannot get back",
+		position = 7
+	)
+	default boolean untradeableDust()
+	{
+		return false;
+	}
 }

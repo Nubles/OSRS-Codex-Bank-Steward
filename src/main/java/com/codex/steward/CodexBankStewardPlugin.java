@@ -2,7 +2,9 @@ package com.codex.steward;
 
 import com.codex.steward.core.Advice;
 import com.codex.steward.core.Catalog;
+import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
+import com.codex.steward.core.Plans;
 import com.codex.steward.core.Reckoning;
 import com.codex.steward.core.Task;
 import com.codex.steward.overlay.BankMarks;
@@ -19,6 +21,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -27,6 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.IntToLongFunction;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
@@ -43,6 +47,7 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatColorType;
@@ -126,7 +131,15 @@ public class CodexBankStewardPlugin extends Plugin
 	private String profile;
 	private Memory memory;
 	private Reckoning reckoning;
+	private ClearOut plan;
+	/** Kits and goals read from the other Codex plugins for this account. */
+	private Plans plans = Plans.none();
 	private Set<Integer> held = Collections.emptySet();
+	/**
+	 * The inventory has been read this login. Until it has, what is carried is unknown, and a
+	 * clear-out must not take an item still in the pack for one that is gone.
+	 */
+	private boolean heldSeen;
 	private boolean[] done = new boolean[0];
 	private boolean progressDirty;
 	private boolean reckonDirty;
@@ -163,7 +176,26 @@ public class CodexBankStewardPlugin extends Plugin
 			image.onLoaded(onLoaded);
 			return image;
 		};
-		panel = new StewardPanel(icons, (itemId, kept) -> clientThread.invokeLater(() -> keep(itemId, kept)));
+		panel = new StewardPanel(icons, new StewardPanel.Actions()
+		{
+			@Override
+			public void keep(int itemId, boolean kept)
+			{
+				clientThread.invokeLater(() -> CodexBankStewardPlugin.this.keep(itemId, kept));
+			}
+
+			@Override
+			public void startClearOut()
+			{
+				clientThread.invokeLater(CodexBankStewardPlugin.this::startClearOut);
+			}
+
+			@Override
+			public void endClearOut()
+			{
+				clientThread.invokeLater(CodexBankStewardPlugin.this::endClearOut);
+			}
+		});
 		navButton = NavigationButton.builder()
 			.tooltip("Codex Bank Steward")
 			.icon(Sigil.icon(16))
@@ -201,6 +233,8 @@ public class CodexBankStewardPlugin extends Plugin
 			memory = null;
 			profile = null;
 			reckoning = null;
+			plan = null;
+			plans = Plans.none();
 			names.clear();
 			tradeable.clear();
 			alchPrice.clear();
@@ -268,6 +302,7 @@ public class CodexBankStewardPlugin extends Plugin
 			summaryDue = false;
 			summaryShown = false;
 			progressRead = false;
+			heldSeen = false;
 			reckonDirty = true;
 			publish();
 		}
@@ -290,6 +325,8 @@ public class CodexBankStewardPlugin extends Plugin
 		done = new boolean[catalog.getTasks().size()];
 		ironman = false;
 		progressRead = false;
+		held = Collections.emptySet();
+		heldSeen = false;
 		summaryShown = false;
 		summaryDue = false;
 		progressDirty = true;
@@ -314,20 +351,55 @@ public class CodexBankStewardPlugin extends Plugin
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
-		if (CodexBankStewardConfig.GROUP.equals(event.getGroup()))
+		String group = event.getGroup();
+		boolean ours = CodexBankStewardConfig.GROUP.equals(group);
+		boolean plansChanged = Plans.QUARTERMASTER.equals(group)
+			&& (Plans.KITS_KEY.equals(event.getKey()) || Plans.QUARTERS_KEY.equals(event.getKey()))
+			|| Plans.NAVIGATOR.equals(group) && Plans.GOALS_KEY.equals(event.getKey());
+		if (!ours && !plansChanged)
+		{
+			return;
+		}
+		if (ours)
 		{
 			marks.setEnabled(config.bankMarks());
-			reckonDirty = true;
-			// No ticks run while logged out, so the panel is redrawn here.
-			clientThread.invokeLater(() ->
-			{
-				if (memory != null && client.getGameState() != GameState.LOGGED_IN)
-				{
-					reckon();
-					publish();
-				}
-			});
 		}
+		clientThread.invokeLater(() ->
+		{
+			if (ours && !"codexPlans".equals(event.getKey()) && !plansChanged)
+			{
+				reckonDirty = true;
+			}
+			else
+			{
+				readPlans();
+			}
+			// No ticks run while logged out, so the panel is redrawn here.
+			if (memory != null && client.getGameState() != GameState.LOGGED_IN)
+			{
+				reckon();
+				publish();
+			}
+		});
+	}
+
+	/**
+	 * Reads the kits Codex Quartermaster and the goals Codex Navigator saved for this account. Only
+	 * reads: neither plugin needs to be installed, and what they save is never changed here.
+	 */
+	private void readPlans()
+	{
+		Plans read = Plans.none();
+		if (profile != null && config.codexPlans())
+		{
+			List<Plans.Kit> kits = Plans.readKits(gson,
+				configManager.getConfiguration(Plans.QUARTERMASTER, profile, Plans.KITS_KEY),
+				configManager.getConfiguration(Plans.QUARTERMASTER, profile, Plans.QUARTERS_KEY));
+			List<String> goals = Plans.readGoals(gson, configManager.getConfiguration(Plans.NAVIGATOR, profile, Plans.GOALS_KEY));
+			read = new Plans(kits, goals);
+		}
+		plans = read;
+		reckonDirty = true;
 	}
 
 	@Subscribe
@@ -453,6 +525,7 @@ public class CodexBankStewardPlugin extends Plugin
 			now.addAll(contents(client.getItemContainer(id)).keySet());
 		}
 		held = now;
+		heldSeen |= client.getItemContainer(InventoryID.INV) != null;
 		if (memory != null)
 		{
 			unsaved |= memory.observeHeld(now, today());
@@ -496,11 +569,87 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			describe(id);
 		}
-		Reckoning.Rules rules = new Reckoning.Rules(config.dustDays(), config.graceDays());
+		Memory.Session session = memory.getSession();
+		if (session != null)
+		{
+			for (Memory.Planned p : session.getItems())
+			{
+				describe(p.getItemId());
+			}
+		}
+		Reckoning.Rules rules = new Reckoning.Rules(config.dustDays(), config.graceDays(), config.guardStash(), config.untradeableDust());
 		boolean alch = byAlchemy();
-		reckoning = Reckoning.of(catalog, memory, bank, held, done,
-			alch ? id -> alchPrice.getOrDefault(id, 0) : itemManager::getItemPrice,
-			id -> tradeable.getOrDefault(id, false), rules, today());
+		IntToLongFunction byAlch = id -> alchPrice.getOrDefault(id, 0);
+		IntToLongFunction byGe = itemManager::getItemPrice;
+		reckoning = Reckoning.of(catalog, memory, bank, held, done, alch ? byAlch : byGe, byGe, byAlch,
+			id -> tradeable.getOrDefault(id, false), rules, plans, today());
+		List<Advice> going = new ArrayList<>(reckoning.getSpent());
+		going.addAll(reckoning.getDust());
+		plan = ClearOut.plan(going, alch, itemManager.getItemPrice(ItemID.NATURERUNE));
+		List<Integer> cleared = session == null ? null : ClearOut.cleared(session, bank, held);
+		if (session != null && !session.isAnnounced() && heldSeen && client.getGameState() == GameState.LOGGED_IN
+			&& ClearOut.finished(session, cleared, ClearOut.leftOff(session, reckoning, cleared)))
+		{
+			session.setAnnounced(true);
+			unsaved = true;
+			announceClearOut(session);
+		}
+	}
+
+	private void startClearOut()
+	{
+		if (memory == null || plan == null || plan.isEmpty())
+		{
+			return;
+		}
+		List<Memory.Planned> items = new ArrayList<>();
+		for (ClearOut.Step step : plan.getSteps())
+		{
+			items.add(new Memory.Planned(step.getAdvice().getItemId(), step.getAdvice().getQuantity(), step.getRoute(), step.getGain()));
+		}
+		memory.setSession(new Memory.Session(today(), items));
+		unsaved = true;
+		reckonDirty = true;
+		reckon();
+		publish();
+	}
+
+	private void endClearOut()
+	{
+		if (memory == null || memory.getSession() == null)
+		{
+			return;
+		}
+		memory.setSession(null);
+		unsaved = true;
+		reckonDirty = true;
+		reckon();
+		publish();
+	}
+
+	/** One chat line when everything a clear-out set out to clear is gone. */
+	private void announceClearOut(Memory.Session session)
+	{
+		long gain = 0;
+		int slots = 0;
+		for (int id : ClearOut.cleared(session, memory.getBank(), held))
+		{
+			gain += session.get(id).getGain();
+			slots++;
+		}
+		ChatMessageBuilder line = new ChatMessageBuilder()
+			.append(ChatColorType.HIGHLIGHT).append("Codex Bank Steward: ")
+			.append(ChatColorType.NORMAL).append("clear-out done. You freed ")
+			.append(ChatColorType.HIGHLIGHT).append(slots + (slots == 1 ? " slot" : " slots"));
+		if (gain > 0)
+		{
+			line.append(ChatColorType.NORMAL).append(" and about ")
+				.append(ChatColorType.HIGHLIGHT).append(Format.coins(gain) + " gp");
+		}
+		chatMessageManager.queue(QueuedMessage.builder()
+			.type(ChatMessageType.CONSOLE)
+			.runeLiteFormattedMessage(line.append(ChatColorType.NORMAL).append(".").build())
+			.build());
 	}
 
 	private void describe(int itemId)
@@ -526,6 +675,8 @@ public class CodexBankStewardPlugin extends Plugin
 		profile = configManager.getRSProfileKey();
 		memory = null;
 		reckoning = null;
+		plan = null;
+		plans = Plans.none();
 		if (profile == null)
 		{
 			return;
@@ -548,7 +699,7 @@ public class CodexBankStewardPlugin extends Plugin
 			memory = new Memory();
 		}
 		unsaved = false;
-		reckonDirty = true;
+		readPlans();
 	}
 
 	/** Writes to the profile if anything changed, and says whether it did. */
@@ -618,7 +769,13 @@ public class CodexBankStewardPlugin extends Plugin
 		StewardPanel.State state = !loggedIn ? StewardPanel.State.LOGGED_OUT
 			: shown == null ? StewardPanel.State.WAITING_FOR_BANK : StewardPanel.State.READY;
 		boolean alch = byAlchemy();
-		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + state + "|" + name + "|" + alch;
+		ClearOut shownPlan = shown == null ? null : plan;
+		Memory.Session session = memory == null || shown == null ? null : memory.getSession();
+		List<Integer> cleared = session == null ? Collections.emptyList()
+			: ClearOut.cleared(session, memory.getBank(), held);
+		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + state + "|" + name + "|" + alch
+			+ "|" + (shownPlan == null ? 0 : shownPlan.totalGain()) + "|" + (session == null ? -1 : session.getStarted() + ":" + session.getItems().size())
+			+ "|" + cleared;
 		if (key.equals(lastPublished))
 		{
 			return;
@@ -627,7 +784,8 @@ public class CodexBankStewardPlugin extends Plugin
 		Map<Integer, String> shownNames = new HashMap<>(names);
 		if (target != null)
 		{
-			SwingUtilities.invokeLater(() -> target.update(shown, shownNames, name, state, alch));
+			StewardPanel.Clearing clearing = new StewardPanel.Clearing(shownPlan, session, cleared);
+			SwingUtilities.invokeLater(() -> target.update(shown, clearing, shownNames, name, state, alch));
 		}
 	}
 }

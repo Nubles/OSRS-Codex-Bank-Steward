@@ -28,35 +28,56 @@ import java.util.function.IntToLongFunction;
  */
 public final class Reckoning
 {
-	/** How the Steward judges; both in days. */
+	/** How the Steward judges. */
 	public static final class Rules
 	{
 		final int dustDays;
 		final int graceDays;
+		final boolean guardStash;
+		final boolean untradeableDust;
 
 		public Rules(int dustDays, int graceDays)
 		{
+			this(dustDays, graceDays, true, false);
+		}
+
+		/**
+		 * @param dustDays days untouched before an item is dusty
+		 * @param graceDays days since last use before a done-with item is listed
+		 * @param guardStash clue STASH gear is never called done with
+		 * @param untradeableDust untradeable items untouched that long are listed apart, with a warning
+		 */
+		public Rules(int dustDays, int graceDays, boolean guardStash, boolean untradeableDust)
+		{
 			this.dustDays = Math.max(1, dustDays);
 			this.graceDays = Math.max(0, graceDays);
+			this.guardStash = guardStash;
+			this.untradeableDust = untradeableDust;
 		}
 	}
 
 	private final List<Advice> spent;
 	private final List<Advice> dust;
 	private final List<Advice> kept;
+	private final List<Advice> spared;
+	private final List<Advice> untradeableDust;
 	private final Map<String, List<Advice>> needed;
+	private final Map<String, List<String>> neededGoals;
 	private final long watchedDays;
 	private final int dustDays;
 	private final int tasksDone;
 	private final int tasksTotal;
 
-	private Reckoning(List<Advice> spent, List<Advice> dust, List<Advice> kept, Map<String, List<Advice>> needed,
-		long watchedDays, int dustDays, int tasksDone, int tasksTotal)
+	private Reckoning(List<Advice> spent, List<Advice> dust, List<Advice> kept, List<Advice> spared, List<Advice> untradeableDust,
+		Map<String, List<Advice>> needed, Map<String, List<String>> neededGoals, long watchedDays, int dustDays, int tasksDone, int tasksTotal)
 	{
 		this.spent = spent;
 		this.dust = dust;
 		this.kept = kept;
+		this.spared = spared;
+		this.untradeableDust = untradeableDust;
 		this.needed = needed;
+		this.neededGoals = neededGoals;
 		this.watchedDays = watchedDays;
 		this.dustDays = dustDays;
 		this.tasksDone = tasksDone;
@@ -73,7 +94,23 @@ public final class Reckoning
 	public static Reckoning of(Catalog catalog, Memory memory, Map<Integer, Long> bank, Set<Integer> held, boolean[] done,
 		IntToLongFunction price, IntPredicate tradeable, Rules rules, long today)
 	{
+		return of(catalog, memory, bank, held, done, price, price, id -> 0, tradeable, rules, Plans.none(), today);
+	}
+
+	/**
+	 * @param value what one is worth on the list: the Grand Exchange price or high alchemy
+	 * @param grandExchange the Grand Exchange price of one
+	 * @param highAlchemy what one brings by high alchemy
+	 * @param plans kits and goals from the other Codex plugins, which keep their items off the list
+	 */
+	public static Reckoning of(Catalog catalog, Memory memory, Map<Integer, Long> bank, Set<Integer> held, boolean[] done,
+		IntToLongFunction value, IntToLongFunction grandExchange, IntToLongFunction highAlchemy, IntPredicate tradeable,
+		Rules rules, Plans plans, long today)
+	{
 		List<Task> tasks = catalog.getTasks();
+		Map<Integer, List<String>> goalsByTask = plans.goalsByTask(catalog);
+		Map<Integer, List<String>> kitsByItem = plans.kitsByItem();
+		Set<Integer> pinned = plans.pinnedTasks(catalog);
 		int doneCount = 0;
 		for (int i = 0; i < tasks.size() && i < done.length; i++)
 		{
@@ -95,7 +132,9 @@ public final class Reckoning
 			{
 				// A soft mention of a tool or supply, or a broad "any food" choice, would bury the
 				// page in food and teleports; such goods are never called spent anyway.
-				if (catalog.isGeneral(item) && (!need.isFirm() || need.getItems().length > Catalog.BROAD))
+				// A pinned goal holds what its quests only mention, too, short of a broad choice.
+				boolean firm = need.isFirm() || pinned.contains(need.getTask());
+				if (catalog.isGeneral(item) && (!firm || need.getItems().length > Catalog.BROAD))
 				{
 					continue;
 				}
@@ -110,6 +149,8 @@ public final class Reckoning
 		List<Advice> spent = new ArrayList<>();
 		List<Advice> dust = new ArrayList<>();
 		List<Advice> kept = new ArrayList<>();
+		List<Advice> spared = new ArrayList<>();
+		List<Advice> untradeable = new ArrayList<>();
 		Map<Integer, List<Advice>> neededByTask = new HashMap<>();
 		long watched = memory.hasSeenBank() ? Math.max(0, today - memory.getSince()) : 0;
 
@@ -122,25 +163,37 @@ public final class Reckoning
 				continue;
 			}
 			boolean canSell = tradeable.test(id);
-			long each = canSell ? Math.max(0, price.applyAsLong(id)) : 0;
+			long ge = canSell ? Math.max(0, grandExchange.applyAsLong(id)) : 0;
+			long alch = Math.max(0, highAlchemy.applyAsLong(id));
+			long each = canSell ? Math.max(0, value.applyAsLong(id)) : 0;
 			long untouched = memory.untouchedDays(id, today);
 
 			if (memory.isKept(id))
 			{
-				kept.add(new Advice(id, qty, each, canSell, Advice.Verdict.KEPT, null, untouched));
+				kept.add(new Advice(id, qty, each, canSell, Advice.Verdict.KEPT, null, untouched).prices(ge, alch));
 				continue;
 			}
 			Set<Integer> wanting = holding.get(id);
 			if (wanting != null)
 			{
 				List<String> names = names(tasks, wanting);
-				Advice advice = new Advice(id, qty, each, canSell, Advice.Verdict.NEEDED, names, untouched);
+				Advice advice = new Advice(id, qty, each, canSell, Advice.Verdict.NEEDED, names, untouched)
+					.prices(ge, alch).claims(goalClaims(goalsByTask, wanting));
 				for (int t : wanting)
 				{
 					neededByTask.computeIfAbsent(t, k -> new ArrayList<>()).add(advice);
 				}
 				continue;
 			}
+
+			List<Claim> kits = new ArrayList<>();
+			for (String kit : kitsByItem.getOrDefault(id, Collections.emptyList()))
+			{
+				kits.add(new Claim(Claim.Kind.KIT, kit));
+			}
+			int tiers = rules.guardStash ? catalog.stashTiers(id) : 0;
+			Claim stash = tiers == 0 ? null : new Claim(Claim.Kind.STASH, tierNames(tiers));
+
 			if (isSpent(catalog, memory, id, qty, done, rules, today))
 			{
 				Set<Integer> served = new HashSet<>();
@@ -151,15 +204,37 @@ public final class Reckoning
 						served.add(need.getTask());
 					}
 				}
-				spent.add(new Advice(id, qty, each, canSell, Advice.Verdict.SPENT, names(tasks, served), untouched));
+				// A kit still takes it, or a clue still asks for it, whatever the quests say.
+				List<Claim> keeping = new ArrayList<>(kits);
+				if (stash != null)
+				{
+					keeping.add(stash);
+				}
+				Advice.Verdict verdict = keeping.isEmpty() ? Advice.Verdict.SPENT : Advice.Verdict.SPARED;
+				Advice advice = new Advice(id, qty, each, canSell, verdict, names(tasks, served), untouched).prices(ge, alch).claims(keeping);
+				(keeping.isEmpty() ? spent : spared).add(advice);
+				continue;
+			}
+			boolean old = watched >= rules.dustDays && untouched >= rules.dustDays && !catalog.isLasting(id);
+			if (!old)
+			{
 				continue;
 			}
 			// An untradeable item nothing explains is not known to be safe to drop, so dust is only
-			// ever called on what can be sold back.
-			if (canSell && watched >= rules.dustDays && untouched >= rules.dustDays && !catalog.isLasting(id))
+			// ever called on what can be sold back; the rest is listed apart only when asked for.
+			if (!canSell && !rules.untradeableDust)
 			{
-				dust.add(new Advice(id, qty, each, canSell, Advice.Verdict.DUST, null, untouched));
+				continue;
 			}
+			if (!kits.isEmpty())
+			{
+				spared.add(new Advice(id, qty, each, canSell, Advice.Verdict.SPARED, null, untouched).prices(ge, alch).claims(kits));
+				continue;
+			}
+			// STASH gear can still be dusty: it may be worth a lot, and the row says what it is for.
+			Advice advice = new Advice(id, qty, each, canSell, Advice.Verdict.DUST, null, untouched).prices(ge, alch)
+				.claims(stash == null ? null : Collections.singletonList(stash));
+			(canSell ? dust : untradeable).add(advice);
 		}
 
 		Comparator<Advice> byValue = Comparator.comparingLong(Advice::getValue).reversed()
@@ -168,20 +243,68 @@ public final class Reckoning
 		spent.sort(byValue);
 		dust.sort(byValue);
 		kept.sort(byValue);
+		spared.sort(byValue);
+		untradeable.sort(Comparator.comparingLong(Advice::getUntouchedDays).reversed().thenComparingInt(Advice::getItemId));
 
-		// Unfinished tasks in catalog order, each with what it holds back, most valuable first.
+		// Unfinished tasks on the way to a pinned goal first, then the rest in catalog order, each
+		// with what it holds back, most valuable first.
 		Map<String, List<Advice>> needed = new LinkedHashMap<>();
-		for (int t = 0; t < tasks.size(); t++)
+		Map<String, List<String>> neededGoals = new LinkedHashMap<>();
+		for (int pass = 0; pass < 2; pass++)
 		{
-			List<Advice> list = neededByTask.get(t);
-			if (list != null)
+			for (int t = 0; t < tasks.size(); t++)
 			{
+				List<Advice> list = neededByTask.get(t);
+				List<String> goals = goalsByTask.get(t);
+				if (list == null || (pass == 0) != (goals != null))
+				{
+					continue;
+				}
 				list.sort(byValue);
 				needed.put(tasks.get(t).getName(), Collections.unmodifiableList(list));
+				if (goals != null)
+				{
+					neededGoals.put(tasks.get(t).getName(), Collections.unmodifiableList(goals));
+				}
 			}
 		}
 		return new Reckoning(Collections.unmodifiableList(spent), Collections.unmodifiableList(dust),
-			Collections.unmodifiableList(kept), Collections.unmodifiableMap(needed), watched, rules.dustDays, doneCount, tasks.size());
+			Collections.unmodifiableList(kept), Collections.unmodifiableList(spared), Collections.unmodifiableList(untradeable),
+			Collections.unmodifiableMap(needed), Collections.unmodifiableMap(neededGoals), watched, rules.dustDays, doneCount, tasks.size());
+	}
+
+	/** The pinned goals the tasks are on the way to, each once. */
+	private static List<Claim> goalClaims(Map<Integer, List<String>> goalsByTask, Set<Integer> tasks)
+	{
+		List<Integer> sorted = new ArrayList<>(tasks);
+		Collections.sort(sorted);
+		List<Claim> claims = new ArrayList<>();
+		for (int t : sorted)
+		{
+			for (String goal : goalsByTask.getOrDefault(t, Collections.emptyList()))
+			{
+				Claim claim = new Claim(Claim.Kind.GOAL, goal);
+				if (!claims.contains(claim))
+				{
+					claims.add(claim);
+				}
+			}
+		}
+		return claims;
+	}
+
+	/** "medium, hard" for a mask of clue tiers. */
+	static String tierNames(int mask)
+	{
+		StringBuilder out = new StringBuilder();
+		for (int i = 0; i < Catalog.CLUE_TIERS.length; i++)
+		{
+			if ((mask & 1 << i) != 0)
+			{
+				out.append(out.length() > 0 ? ", " : "").append(Catalog.CLUE_TIERS[i]);
+			}
+		}
+		return out.toString();
 	}
 
 	/** The most a bank may hold of an item and still be leftovers from the tasks that wanted it. */
@@ -255,7 +378,55 @@ public final class Reckoning
 		return kept;
 	}
 
-	/** Unfinished task name to the bank items it holds back. */
+	/** Items a kit, goal or STASH unit keeps off the list, each with what keeps it. */
+	public List<Advice> getSpared()
+	{
+		return spared;
+	}
+
+	/**
+	 * Untradeable items untouched past the dust threshold, listed apart only when the player asks.
+	 * They are never in the gold or slot totals, since one may be a reward that cannot be had again.
+	 */
+	public List<Advice> getUntradeableDust()
+	{
+		return untradeableDust;
+	}
+
+	/** What the Steward makes of an item in the bank now, or null when it is not in the bank. */
+	public Advice adviceFor(int itemId)
+	{
+		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust))
+		{
+			for (Advice a : list)
+			{
+				if (a.getItemId() == itemId)
+				{
+					return a;
+				}
+			}
+		}
+		for (List<Advice> list : needed.values())
+		{
+			for (Advice a : list)
+			{
+				if (a.getItemId() == itemId)
+				{
+					return a;
+				}
+			}
+		}
+		return null;
+	}
+
+	/** The pinned goals an unfinished task is on the way to; empty when none. */
+	public List<String> goalsOf(String task)
+	{
+		List<String> goals = neededGoals.get(task);
+		return goals == null ? Collections.emptyList() : goals;
+	}
+
+	/** Unfinished task name to the bank items it holds back, tasks for pinned goals first. */
 	public Map<String, List<Advice>> getNeeded()
 	{
 		return needed;
@@ -289,7 +460,7 @@ public final class Reckoning
 	public long fingerprint()
 	{
 		long h = 17;
-		for (List<Advice> list : Arrays.asList(spent, dust, kept))
+		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust))
 		{
 			h = h * 31 + list.size();
 			for (Advice a : list)
@@ -300,6 +471,7 @@ public final class Reckoning
 		for (Map.Entry<String, List<Advice>> e : needed.entrySet())
 		{
 			h = h * 31 + e.getKey().hashCode();
+			h = h * 31 + goalsOf(e.getKey()).hashCode();
 			for (Advice a : e.getValue())
 			{
 				h = mix(h, a);
@@ -315,6 +487,9 @@ public final class Reckoning
 		h = h * 31 + a.getPrice();
 		h = h * 31 + a.getUntouchedDays();
 		h = h * 31 + a.getVerdict().ordinal();
+		h = h * 31 + a.getGrandExchange();
+		h = h * 31 + a.getHighAlchemy();
+		h = h * 31 + a.getClaims().hashCode();
 		return h * 31 + a.getTasks().hashCode();
 	}
 

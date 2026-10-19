@@ -141,4 +141,38 @@ public class CatalogTest
 			assertFalse(catalog.needsOf(id).isEmpty());
 		}
 	}
+
+	@Test
+	public void bundledDataKnowsStashGearAndNavigatorGoals() throws Exception
+	{
+		Catalog catalog = load();
+		// Steel platebody fills a medium STASH unit; a lobster fills none.
+		assertTrue((catalog.stashTiers(net.runelite.api.gameval.ItemID.STEEL_PLATEBODY) & 4) != 0);
+		assertTrue(catalog.stashTiers(net.runelite.api.gameval.ItemID.LOBSTER) == 0);
+		// Dragon Slayer II covers itself and the quests before it, all the way down.
+		Set<Integer> ds2 = new HashSet<>();
+		for (int t : catalog.goalTasks("quest:Dragon Slayer II"))
+		{
+			ds2.add(t);
+		}
+		assertTrue(ds2.contains(taskIndex(catalog, "Dragon Slayer II")));
+		assertTrue(ds2.contains(taskIndex(catalog, "Dragon Slayer I")));
+		assertTrue(ds2.contains(taskIndex(catalog, "Legends' Quest")));
+		assertTrue(ds2.contains(taskIndex(catalog, "Shield of Arrav - Phoenix Gang")));
+		assertFalse(ds2.contains(taskIndex(catalog, "Cook's Assistant")));
+		// Navigator names diaries without "Diary", and some areas shorter.
+		int[] kourend = catalog.goalTasks("diary:Kourend Easy");
+		assertTrue(kourend.length > 0);
+		assertTrue(catalog.goalTasks("diary:Lumbridge Elite").length > 0);
+		// Every quest for the cape, and nothing for a goal the Steward does not know.
+		assertTrue(catalog.goalTasks("cape:Quest point cape").length > 150);
+		assertTrue(catalog.goalTasks("quest:Not A Quest").length == 0);
+		for (int[] list : new int[][]{catalog.goalTasks("quest:Desert Treasure II - The Fallen Empire"), kourend})
+		{
+			for (int t : list)
+			{
+				assertTrue(t >= 0 && t < catalog.getTasks().size());
+			}
+		}
+	}
 }
