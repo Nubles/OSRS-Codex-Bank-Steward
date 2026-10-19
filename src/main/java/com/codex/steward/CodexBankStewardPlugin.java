@@ -793,6 +793,19 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			oldPlaceholders = Placeholders.old(catalog, memory, held, done, plans, rules, today());
 		}
+		else
+		{
+			// Progress is not read while logged out, but a placeholder kept or gone since still leaves the list.
+			List<Placeholders.Line> still = new ArrayList<>();
+			for (Placeholders.Line l : oldPlaceholders)
+			{
+				if (!memory.isKept(l.getItemId()) && memory.getPlaceholders().containsKey(l.getItemId()))
+				{
+					still.add(l);
+				}
+			}
+			oldPlaceholders = still;
+		}
 		savingsGoal = ironman || savingsJson == null ? null
 			: SavingsGoal.read(gson, savingsJson, owned, itemManager::getItemPrice, plan.totalGain());
 		List<Integer> cleared = session == null ? null : ClearOut.cleared(session, bank, held);
