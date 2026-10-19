@@ -352,7 +352,8 @@ public class CodexBankStewardPlugin extends Plugin
 	public void onConfigChanged(ConfigChanged event)
 	{
 		String group = event.getGroup();
-		boolean ours = CodexBankStewardConfig.GROUP.equals(group);
+		// The Steward's own saved memory is not an option: saving it changes nothing shown.
+		boolean ours = CodexBankStewardConfig.GROUP.equals(group) && !MEMORY_KEY.equals(event.getKey());
 		boolean plansChanged = Plans.QUARTERMASTER.equals(group)
 			&& (Plans.KITS_KEY.equals(event.getKey()) || Plans.QUARTERS_KEY.equals(event.getKey()))
 			|| Plans.NAVIGATOR.equals(group) && Plans.GOALS_KEY.equals(event.getKey());
