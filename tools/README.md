@@ -24,5 +24,8 @@
    javac -cp "$CP" -d build/tools tools/ExtractStash.java
    java -cp "build/tools:$CP" net.runelite.client.plugins.cluescrolls.clues.ExtractStash > build/stash.json
    python3 tools/add_links.py src/main/resources/com/codex/steward/steward-data.json build/stash.json \
-       path/to/OSRS-Codex-Navigator/src/main/resources/com/codex/navigator/codex-data.json
+       path/to/OSRS-Codex-Navigator/src/main/resources/com/codex/navigator/codex-data.json \
+       path/to/runelite-api/src/main/java/net/runelite/api/Quest.java
    ```
+
+   The last argument lets it add a task with no items for each Navigator quest Quest Helper has no helper for yet, so goals naming those quests still match.

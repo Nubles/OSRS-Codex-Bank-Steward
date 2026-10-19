@@ -1,5 +1,6 @@
 package com.codex.steward.core;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -172,6 +173,39 @@ public class CatalogTest
 			for (int t : list)
 			{
 				assertTrue(t >= 0 && t < catalog.getTasks().size());
+			}
+		}
+	}
+
+	@Test
+	public void navigatorGoalsForQuestsQuestHelperLacksStillMatch() throws Exception
+	{
+		Catalog catalog = load();
+		// Quest Helper has no helper for these yet, so they hold no items, but Navigator can pin
+		// them: "quest:Learning the Ropes" used to cover nothing at all and never matched.
+		for (String name : new String[]{"Learning the Ropes", "The Frozen Door", "Into the Tombs"})
+		{
+			int own = taskIndex(catalog, name);
+			Task task = catalog.getTasks().get(own);
+			assertEquals(name, Quest.valueOf(task.getQuest()).getName());
+			boolean covered = false;
+			for (int t : catalog.goalTasks("quest:" + name))
+			{
+				covered |= t == own;
+			}
+			assertTrue(name, covered);
+		}
+		// Every quest goal Navigator can save is named as RuneLite names the quest.
+		Set<String> runelite = new HashSet<>();
+		for (Quest q : Quest.values())
+		{
+			runelite.add(q.getName());
+		}
+		for (Task task : catalog.getTasks())
+		{
+			if (!task.usesVarbit() && catalog.goalTasks("quest:" + task.getName()).length > 0)
+			{
+				assertTrue(task.getName(), runelite.contains(task.getName()));
 			}
 		}
 	}

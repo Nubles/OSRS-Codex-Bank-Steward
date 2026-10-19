@@ -4,16 +4,23 @@
 Run after build_data.py; running it again replaces what it added before.
 
     python3 tools/add_links.py src/main/resources/com/codex/steward/steward-data.json \
-        build/stash.json path/to/OSRS-Codex-Navigator/src/main/resources/com/codex/navigator/codex-data.json
+        build/stash.json path/to/OSRS-Codex-Navigator/src/main/resources/com/codex/navigator/codex-data.json \
+        path/to/runelite-api/src/main/java/net/runelite/api/Quest.java
 
 build/stash.json comes from tools/ExtractStash.java (see tools/README.md).
 
 "stash" is a list of [itemId, tierMask] (beginner 1, easy 2, medium 4, hard 8, elite 16, master 32).
+Navigator quests Quest Helper has no helper for yet (Learning the Ropes, Into the Tombs, The
+Frozen Door) are added as tasks with no items, read through RuneLite's Quest enum, when the
+optional fourth argument names RuneLite's Quest.java. Without them a goal such as
+"quest:Learning the Ropes" covered nothing, and Navigator goals naming it never matched.
+
 "goals" maps each goal key Navigator saves ("quest:<name>", "diary:<name>") to the Steward
 task indexes the goal covers: the quest or diary itself and every quest it needs first, all the
 way down. Navigator's quest cape goal covers every quest and is worked out in the plugin.
 """
 import json
+import re
 import sys
 
 RFD = {
@@ -38,12 +45,32 @@ def steward_names(nav_quest):
     return [nav_quest]
 
 
-def main(data_path, stash_path, nav_path):
+def runelite_quests(quest_path):
+    """RuneLite's Quest constants by quest name, read from Quest.java."""
+    if not quest_path:
+        return {}
+    text = open(quest_path).read()
+    return {name: const for const, name in re.findall(r'^\s*([A-Z0-9_]+)\(\d+, "([^"]+)"', text, re.M)}
+
+
+def main(data_path, stash_path, nav_path, quest_path=None):
     data = json.load(open(data_path))
     stash = json.load(open(stash_path))
     nav = json.load(open(nav_path))
-    index = {t["name"]: i for i, t in enumerate(data["tasks"])}
     quests = {q["name"]: q for q in nav["quests"]}
+    # Navigator quests with no Steward task get one with no items, appended so the task
+    # indexes the needs use stay the same. Running again finds them already there.
+    known = {t["name"] for t in data["tasks"]}
+    constants = runelite_quests(quest_path)
+    added = []
+    for name, q in quests.items():
+        if any(n in known for n in steward_names(name)) or name not in constants:
+            continue
+        kind = "miniquest" if q.get("miniquest") else "quest"
+        data["tasks"].append({"name": name, "kind": kind, "quest": constants[name]})
+        known.add(name)
+        added.append(name)
+    index = {t["name"]: i for i, t in enumerate(data["tasks"])}
 
     def tasks_of(nav_quest):
         return [index[n] for n in steward_names(nav_quest) if n in index]
@@ -83,7 +110,8 @@ def main(data_path, stash_path, nav_path):
     with open(data_path, "w") as f:
         json.dump(data, f, separators=(",", ":"))
     print("stash items:", len(data["stash"]), "goals:", len(goals), "with no Steward task:", missing, file=sys.stderr)
+    print("tasks added for quests Quest Helper lacks:", added, file=sys.stderr)
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:4])
+    main(*sys.argv[1:5])

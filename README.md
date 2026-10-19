@@ -44,7 +44,7 @@ Nothing is ever sold, dropped or withdrawn for you. The Steward only advises.
 
 ## Where the quest data comes from
 
-Clue STASH gear is read from RuneLite's own emote clue list, and the quests each Navigator goal needs first from Codex Navigator's quest data. The list of which quests and diaries need which items comes from [Quest Helper](https://github.com/Zoinkwiz/quest-helper) (BSD 2-Clause), read by running its own helpers, so it covers 263 quests, miniquests, diary tiers and Recipe for Disaster's parts, including the items each quest only names in its steps. Each part of Recipe for Disaster is read on its own, so a finished part frees its items. `tools/README.md` has the steps to rebuild `steward-data.json` when new quests release.
+Clue STASH gear is read from RuneLite's own emote clue list, and the quests each Navigator goal needs first from Codex Navigator's quest data. The list of which quests and diaries need which items comes from [Quest Helper](https://github.com/Zoinkwiz/quest-helper) (BSD 2-Clause), read by running its own helpers, so it covers 263 quests, miniquests, diary tiers and Recipe for Disaster's parts, including the items each quest only names in its steps. Quests Quest Helper has no helper for yet (Learning the Ropes, The Frozen Door, Into the Tombs) are listed with no items, so a Navigator goal naming them still counts them. Each part of Recipe for Disaster is read on its own, so a finished part frees its items. `tools/README.md` has the steps to rebuild `steward-data.json` when new quests release.
 
 ## Rules posture
 
