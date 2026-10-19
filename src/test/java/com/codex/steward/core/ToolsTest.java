@@ -31,6 +31,19 @@ public class ToolsTest
 	}
 
 	@Test
+	public void blackAndMithrilPickaxesMineAtOneSpeed()
+	{
+		// Both roll every 5 ticks (OSRS Wiki, Pickaxe): owning one never makes the other needless.
+		Map<Tools.Kind, Integer> best = Tools.best(Arrays.asList(ItemID.BLACK_PICKAXE, ItemID.MITHRIL_PICKAXE, ItemID.STEEL_PICKAXE), HIGH);
+		assertNull(Tools.outclassedBy(ItemID.BLACK_PICKAXE, best));
+		assertNull(Tools.outclassedBy(ItemID.MITHRIL_PICKAXE, best));
+		assertEquals(best.get(Tools.Kind.PICKAXE), Tools.outclassedBy(ItemID.STEEL_PICKAXE, best));
+		// Black axes do differ: a mithril axe cuts faster.
+		Map<Tools.Kind, Integer> axes = Tools.best(Arrays.asList(ItemID.BLACK_AXE, ItemID.MITHRIL_AXE), HIGH);
+		assertEquals((Integer) ItemID.MITHRIL_AXE, Tools.outclassedBy(ItemID.BLACK_AXE, axes));
+	}
+
+	@Test
 	public void aToolTheLevelCannotUseOutclassesNothing()
 	{
 		// Level 50 Mining cannot swing a dragon pickaxe, so the rune one is still the one in use.

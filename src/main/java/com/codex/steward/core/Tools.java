@@ -90,6 +90,8 @@ public final class Tools
 		// works at dragon speed), crystal 9.
 		tools(Kind.PICKAXE, ItemID.BRONZE_PICKAXE, ItemID.IRON_PICKAXE, ItemID.STEEL_PICKAXE, ItemID.BLACK_PICKAXE,
 			ItemID.MITHRIL_PICKAXE, ItemID.ADAMANT_PICKAXE, ItemID.RUNE_PICKAXE, ItemID.DRAGON_PICKAXE, ItemID.CRYSTAL_PICKAXE);
+		// A black pickaxe swings every 5 ticks, as a mithril one does: neither outclasses the other.
+		TOOLS.put(ItemID.BLACK_PICKAXE, new Tool(Kind.PICKAXE, 5, LEVELS[4], false));
 		tools(Kind.AXE, ItemID.BRONZE_AXE, ItemID.IRON_AXE, ItemID.STEEL_AXE, ItemID.BLACK_AXE,
 			ItemID.MITHRIL_AXE, ItemID.ADAMANT_AXE, ItemID.RUNE_AXE, ItemID.DRAGON_AXE, ItemID.CRYSTAL_AXE);
 		tools(Kind.FELLING_AXE, ItemID.BRONZE_AXE_2H, ItemID.IRON_AXE_2H, ItemID.STEEL_AXE_2H, ItemID.BLACK_AXE_2H,
