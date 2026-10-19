@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -348,7 +347,7 @@ public final class Plans
 		{
 			return gson.fromJson(json, JsonElement.class);
 		}
-		catch (JsonParseException | IllegalStateException | NumberFormatException e)
+		catch (RuntimeException | StackOverflowError e)
 		{
 			return null;
 		}

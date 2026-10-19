@@ -2,7 +2,6 @@ package com.codex.steward.core;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
-import com.google.gson.JsonParseException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.TreeMap;
@@ -80,9 +79,14 @@ public final class BankSnapshot
 				return null;
 			}
 			BankSnapshot s = gson.fromJson(root, BankSnapshot.class);
-			return s == null || s.items == null ? null : s;
+			if (s == null || s.items == null)
+			{
+				return null;
+			}
+			s.items.entrySet().removeIf(e -> e.getKey() == null || e.getValue() == null || e.getValue() <= 0);
+			return s;
 		}
-		catch (JsonParseException | IllegalStateException | NumberFormatException e)
+		catch (RuntimeException | StackOverflowError e)
 		{
 			return null;
 		}

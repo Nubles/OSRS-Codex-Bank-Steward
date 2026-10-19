@@ -917,7 +917,7 @@ public class CodexBankStewardPlugin extends Plugin
 		Reckoning.Rules rules = new Reckoning.Rules(config.dustDays(), config.graceDays(), config.guardStash(), config.untradeableDust());
 		boolean alch = byAlchemy();
 		IntToLongFunction byAlch = id -> alchPrice.getOrDefault(id, 0);
-		IntToLongFunction byGe = itemManager::getItemPrice;
+		IntToLongFunction byGe = this::price;
 		reckoning = Reckoning.of(catalog, memory, bank, held, done, alch ? byAlch : byGe, byGe, byAlch,
 			id -> tradeable.getOrDefault(id, false), rules, plans, memory.getLevels(), today());
 		for (Advice a : reckoning.getOutclassed())
@@ -928,7 +928,7 @@ public class CodexBankStewardPlugin extends Plugin
 		Map<Integer, Long> owned = new HashMap<>(bank);
 		heldCounts.forEach((id, q) -> owned.merge(id, q, Long::sum));
 		// Until this login's quest progress is read, every quest looks unfinished.
-		toGet = !progressRead ? Collections.emptyList() : Shortfall.of(catalog, plans, done, owned, itemManager::getItemPrice, id ->
+		toGet = !progressRead ? Collections.emptyList() : Shortfall.of(catalog, plans, done, owned, this::price, id ->
 		{
 			describe(id);
 			return tradeable.getOrDefault(id, false);
@@ -967,7 +967,7 @@ public class CodexBankStewardPlugin extends Plugin
 			oldPlaceholders = still;
 		}
 		savingsGoal = ironman || savingsJson == null ? null
-			: SavingsGoal.read(gson, savingsJson, owned, itemManager::getItemPrice, plan.totalGain());
+			: SavingsGoal.read(gson, savingsJson, owned, this::price, plan.totalGain());
 		List<Integer> cleared = session == null ? null : ClearOut.cleared(session, bank, held);
 		if (session != null && !session.isAnnounced() && heldSeen && client.getGameState() == GameState.LOGGED_IN
 			&& ClearOut.finished(session, cleared, ClearOut.leftOff(session, reckoning, cleared)))
@@ -1038,12 +1038,42 @@ public class CodexBankStewardPlugin extends Plugin
 	{
 		if (!names.containsKey(itemId))
 		{
-			ItemComposition item = itemManager.getItemComposition(itemId);
+			ItemComposition item;
+			try
+			{
+				item = itemManager.getItemComposition(itemId);
+			}
+			catch (RuntimeException e)
+			{
+				// An id no item has, left by a damaged save: named plainly and worth nothing.
+				item = null;
+			}
+			if (item == null)
+			{
+				names.put(itemId, "Item " + itemId);
+				tradeable.put(itemId, false);
+				alchPrice.put(itemId, 0);
+				drinkable.put(itemId, false);
+				return;
+			}
 			names.put(itemId, item.getName());
 			tradeable.put(itemId, item.isTradeable());
 			alchPrice.put(itemId, item.getHaPrice());
 			String[] actions = item.getInventoryActions();
 			drinkable.put(itemId, actions != null && Arrays.asList(actions).contains("Drink"));
+		}
+	}
+
+	/** An item's Grand Exchange price, or 0 for an id no item has, as a damaged save can hold. */
+	private long price(int itemId)
+	{
+		try
+		{
+			return itemManager.getItemPrice(itemId);
+		}
+		catch (RuntimeException e)
+		{
+			return 0;
 		}
 	}
 
@@ -1074,23 +1104,7 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			return;
 		}
-		try
-		{
-			String saved = configManager.getRSProfileConfiguration(CodexBankStewardConfig.GROUP, MEMORY_KEY);
-			if (saved != null && !saved.isEmpty())
-			{
-				Memory read = gson.fromJson(saved, Memory.class);
-				memory = read == null ? null : read.repair();
-			}
-		}
-		catch (JsonParseException e)
-		{
-			log.warn("Could not read the Steward's saved memory, starting afresh", e);
-		}
-		if (memory == null)
-		{
-			memory = new Memory();
-		}
+		memory = Memory.read(gson, configManager.getRSProfileConfiguration(CodexBankStewardConfig.GROUP, MEMORY_KEY));
 		unsaved = false;
 		reckonDirty = true;
 		readPlans();
@@ -1267,7 +1281,7 @@ public class CodexBankStewardPlugin extends Plugin
 				bankSearch.layoutBank();
 			}
 		}
-		Strata strata = shown == null || memory == null ? Strata.EMPTY : Strata.of(memory, memory.getBank(), today(), itemManager::getItemPrice);
+		Strata strata = shown == null || memory == null ? Strata.EMPTY : Strata.of(memory, memory.getBank(), today(), this::price);
 		lastStrata = strata;
 		BankView layerBefore = layerView;
 		layerView = BankView.layer(layerItems(strata));

@@ -1,5 +1,6 @@
 package com.codex.steward.core;
 
+import com.google.gson.Gson;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -130,34 +131,80 @@ public final class Memory
 		}
 	}
 
-	/** Fills in anything a saved copy from an older version lacks. */
+	/** The highest level a skill reaches. */
+	private static final int MAX_LEVEL = 126;
+
+	/**
+	 * Reads the memory saved for an account, or a fresh one when there is none. A damaged save
+	 * keeps all it can: a field or entry that cannot be read is lost alone.
+	 */
+	public static Memory read(Gson gson, String saved)
+	{
+		Memory read = Salvage.read(gson, saved, Memory.class);
+		return read == null ? new Memory() : read.repair();
+	}
+
+	/** Fills in anything a saved copy from an older version lacks, and drops what damage left. */
 	public Memory repair()
 	{
-		if (bank == null)
-		{
-			bank = new HashMap<>();
-		}
-		if (moved == null)
-		{
-			moved = new HashMap<>();
-		}
+		bank = counts(bank, 1);
+		// No bank slot holds more than this; a larger count is damage, held to it.
+		bank.replaceAll((id, q) -> Math.min(q, Integer.MAX_VALUE));
+		moved = counts(moved, 0);
+		placeholders = counts(placeholders, 0);
 		if (keep == null)
 		{
 			keep = new HashSet<>();
 		}
-		if (placeholders == null)
-		{
-			placeholders = new HashMap<>();
-		}
+		keep.removeIf(id -> id == null || id <= 0);
+		since = Math.max(-1, since);
 		if (session != null && session.items == null)
 		{
 			session = null;
 		}
 		if (session != null)
 		{
-			session.items.removeIf(p -> p == null || p.item <= 0);
+			session.items.removeIf(p -> p == null || p.item <= 0 || p.qty <= 0);
+			session.items.forEach(p -> p.gain = Math.max(0, p.gain));
+		}
+		if (mining <= 0 || mining > MAX_LEVEL || woodcutting <= 0 || woodcutting > MAX_LEVEL)
+		{
+			mining = 0;
+			woodcutting = 0;
 		}
 		return this;
+	}
+
+	/** A copy of saved entries with real item ids and values of at least {@code least}. */
+	private static Map<Integer, Long> counts(Map<Integer, Long> saved, long least)
+	{
+		Map<Integer, Long> out = new HashMap<>();
+		if (saved != null)
+		{
+			saved.forEach((id, v) ->
+			{
+				if (id != null && id > 0 && v != null && v >= least)
+				{
+					out.put(id, v);
+				}
+			});
+		}
+		return out;
+	}
+
+	/**
+	 * Brings days saved more than a year past today back to today: damage, not a clock a little
+	 * off, and it would otherwise keep those items from ever gathering dust.
+	 */
+	private void settle(long today)
+	{
+		long latest = today + 366;
+		if (since > latest)
+		{
+			since = today;
+		}
+		moved.replaceAll((id, day) -> day > latest ? today : day);
+		placeholders.replaceAll((id, day) -> day > latest ? today : day);
 	}
 
 	public boolean hasSeenBank()
@@ -183,6 +230,7 @@ public final class Memory
 	 */
 	public boolean observeBank(Map<Integer, Long> now, long today)
 	{
+		settle(today);
 		if (since < 0)
 		{
 			since = today;
@@ -243,6 +291,7 @@ public final class Memory
 	/** Marks items carried or worn as in use today. */
 	public boolean observeHeld(Iterable<Integer> items, long today)
 	{
+		settle(today);
 		boolean changed = false;
 		for (Integer id : items)
 		{

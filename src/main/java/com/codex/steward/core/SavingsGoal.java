@@ -1,7 +1,6 @@
 package com.codex.steward.core;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.function.IntToLongFunction;
@@ -54,15 +53,7 @@ public final class SavingsGoal
 		{
 			return null;
 		}
-		Saved saved;
-		try
-		{
-			saved = gson.fromJson(json, Saved.class);
-		}
-		catch (JsonParseException | IllegalStateException e)
-		{
-			return null;
-		}
+		Saved saved = Salvage.read(gson, json, Saved.class);
 		if (saved == null || saved.name == null || saved.name.isEmpty() || saved.ids == null || saved.ids.isEmpty())
 		{
 			return null;
@@ -70,7 +61,7 @@ public final class SavingsGoal
 		long cost = 0;
 		for (Integer id : saved.ids)
 		{
-			if (id == null || owned.getOrDefault(id, 0L) > 0)
+			if (id == null || id <= 0 || owned.getOrDefault(id, 0L) > 0)
 			{
 				continue;
 			}
