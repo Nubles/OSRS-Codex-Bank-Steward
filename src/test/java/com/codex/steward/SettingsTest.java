@@ -99,4 +99,24 @@ public class SettingsTest
 			}
 		}
 	}
+
+	@Test
+	public void savedSettingsKeepTheirKeys()
+	{
+		// A setting's key is where its value is saved: renaming one quietly resets it for every player who changed it.
+		// Every key on main and every one added since is pinned.
+		Set<String> keys = new HashSet<>();
+		for (Method m : CodexBankStewardConfig.class.getMethods())
+		{
+			ConfigItem item = m.getAnnotation(ConfigItem.class);
+			if (item != null)
+			{
+				keys.add(item.keyName());
+			}
+		}
+		for (String key : new String[]{"bankMarks", "bankSummary", "codexPlans", "dustDays", "graceDays", "guardStash", "shareBank", "untradeableDust", "valueBy"})
+		{
+			assertTrue(key, keys.contains(key));
+		}
+	}
 }

@@ -64,7 +64,7 @@ An item is **done with** only when all of these hold:
 - the stack is no bigger than leftovers from those quests, so 2,000 planks are not called spent because a diary once wanted 10;
 - you have not used it within the grace days.
 
-An item is **dusty** when it is tradeable, no kit takes it, and it has not moved for the dust time. An item has moved when its count in the bank changes, or whenever you carry or wear it. The Steward starts its clock the first time it sees your bank, so it only calls dust after it has watched that long. Everything is remembered per account in your RuneLite profile. A save damaged on disk keeps all it can: one unreadable entry or setting is lost alone.
+An item is **dusty** when it is tradeable, no kit takes it, and it has not moved for the dust time. An item has moved when its count in the bank changes, or whenever you carry or wear it. The Steward starts its clock the first time it sees your bank, so it only calls dust after it has watched that long. Everything is remembered per account in your RuneLite profile. A save damaged on disk keeps all it can: one unreadable entry or setting is lost alone. Before a damaged save, or one a newer version wrote, is first saved over, a copy of it as found is kept aside in your profile.
 
 ## Where the quest data comes from
 

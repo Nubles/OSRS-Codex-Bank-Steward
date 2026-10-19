@@ -351,12 +351,35 @@ public class DamagedDataTest
 		{
 			run.run();
 		}
-		int runs = 30;
-		long t0 = System.nanoTime();
-		for (int i = 0; i < runs; i++)
+		// The quickest of five batches, so a busy shared build machine cannot fail the check.
+		double best = Double.MAX_VALUE;
+		for (int batch = 0; batch < 5; batch++)
 		{
-			run.run();
+			int runs = 30;
+			long t0 = System.nanoTime();
+			for (int i = 0; i < runs; i++)
+			{
+				run.run();
+			}
+			best = Math.min(best, (System.nanoTime() - t0) / 1e6 / runs);
 		}
-		return (System.nanoTime() - t0) / 1e6 / runs;
+		return best;
+	}
+
+	@Test
+	public void onlyASaveThisVersionCannotKeepWholeIsPutAside()
+	{
+		// The plugin's own saves, however full, are never copied aside at login.
+		for (Memory own : new Memory[]{new Memory(), good()})
+		{
+			String json = GSON.toJson(own);
+			assertFalse(Salvage.wouldLose(GSON, json, Memory.read(GSON, json)));
+		}
+		// A newer version's field, or a damaged one, would be lost at the next save: kept aside first.
+		String json = GSON.toJson(good());
+		String newer = json.replaceFirst("\\{", "{\"addedLater\":[1,2],");
+		assertTrue(Salvage.wouldLose(GSON, newer, Memory.read(GSON, newer)));
+		String damaged = json.replaceFirst("\"since\":-?[0-9]+", "\"since\":{\"x\":true}");
+		assertTrue(Salvage.wouldLose(GSON, damaged, Memory.read(GSON, damaged)));
 	}
 }

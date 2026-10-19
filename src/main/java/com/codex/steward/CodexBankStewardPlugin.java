@@ -10,6 +10,7 @@ import com.codex.steward.core.Memory;
 import com.codex.steward.core.Placeholders;
 import com.codex.steward.core.Plans;
 import com.codex.steward.core.Reckoning;
+import com.codex.steward.core.Salvage;
 import com.codex.steward.core.SavingsGoal;
 import com.codex.steward.core.Shortfall;
 import com.codex.steward.core.Strata;
@@ -98,6 +99,10 @@ public class CodexBankStewardPlugin extends Plugin
 {
 	private static final Logger log = LoggerFactory.getLogger(CodexBankStewardPlugin.class);
 	private static final String MEMORY_KEY = "memory";
+	/** Where a save this version could not keep whole is put aside, once, before it is written over. */
+	private static final String BACKUP_KEY = "memoryBackup";
+	/** Past this a save is far bigger than any the Steward writes, and is not copied aside. */
+	private static final int BACKUP_MAX = 1_000_000;
 	private static final String DATA = "steward-data.json";
 	/**
 	 * Ticks between reading quest and diary progress while varbits are changing. Varbits change
@@ -499,7 +504,7 @@ public class CodexBankStewardPlugin extends Plugin
 		String group = event.getGroup();
 		// The Steward's own saved memory and bank snapshot are not options: saving them changes nothing shown.
 		boolean ours = CodexBankStewardConfig.GROUP.equals(group) && !MEMORY_KEY.equals(event.getKey())
-			&& !BankSnapshot.KEY.equals(event.getKey());
+			&& !BACKUP_KEY.equals(event.getKey()) && !BankSnapshot.KEY.equals(event.getKey());
 		boolean plansChanged = Plans.QUARTERMASTER.equals(group)
 			&& (Plans.KITS_KEY.equals(event.getKey()) || Plans.QUARTERS_KEY.equals(event.getKey()))
 			|| Plans.NAVIGATOR.equals(group) && Plans.GOALS_KEY.equals(event.getKey())
@@ -1104,7 +1109,15 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			return;
 		}
-		memory = Memory.read(gson, configManager.getRSProfileConfiguration(CodexBankStewardConfig.GROUP, MEMORY_KEY));
+		String saved = configManager.getRSProfileConfiguration(CodexBankStewardConfig.GROUP, MEMORY_KEY);
+		memory = Memory.read(gson, saved);
+		if (saved != null && saved.length() <= BACKUP_MAX && Salvage.wouldLose(gson, saved, memory))
+		{
+			// A newer version's fields, or damage mended on reading: the next save would write over
+			// them, so the save as found is kept aside first.
+			log.warn("The Steward's saved memory holds what this version cannot keep; a copy is kept under {}", BACKUP_KEY);
+			configManager.setConfiguration(CodexBankStewardConfig.GROUP, profile, BACKUP_KEY, saved);
+		}
 		unsaved = false;
 		reckonDirty = true;
 		readPlans();

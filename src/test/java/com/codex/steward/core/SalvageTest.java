@@ -1,6 +1,7 @@
 package com.codex.steward.core;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import com.google.gson.Gson;
@@ -43,5 +44,28 @@ public class SalvageTest
 		assertEquals(2, s.names.size());
 		assertEquals(1, s.counts.size());
 		assertTrue(Salvage.read(GSON, "[1]", Saved.class) == null);
+	}
+
+	@Test
+	public void aSaveThisVersionKeepsWholeLosesNothing()
+	{
+		String own = "{\"kept\":5,\"names\":[\"a\"],\"counts\":{\"a\":1}}";
+		assertFalse(Salvage.wouldLose(GSON, own, Salvage.read(GSON, own, Saved.class)));
+		// An older save that lacks a field, or nothing saved at all, loses nothing either.
+		String older = "{\"kept\":5}";
+		assertFalse(Salvage.wouldLose(GSON, older, Salvage.read(GSON, older, Saved.class)));
+		assertFalse(Salvage.wouldLose(GSON, null, null));
+		assertFalse(Salvage.wouldLose(GSON, "", null));
+	}
+
+	@Test
+	public void aNewerOrDamagedSaveWouldLoseWhatItHolds()
+	{
+		// A field a newer version added, a value of a shape this one cannot read, and garbage.
+		String newer = "{\"kept\":5,\"names\":[\"a\"],\"added\":{\"x\":1}}";
+		assertTrue(Salvage.wouldLose(GSON, newer, Salvage.read(GSON, newer, Saved.class)));
+		String damaged = "{\"kept\":\"five\",\"names\":[\"a\",{},\"b\"]}";
+		assertTrue(Salvage.wouldLose(GSON, damaged, Salvage.read(GSON, damaged, Saved.class)));
+		assertTrue(Salvage.wouldLose(GSON, "{\"kept\":5", null));
 	}
 }
