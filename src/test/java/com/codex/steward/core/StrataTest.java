@@ -92,4 +92,19 @@ public class StrataTest
 		memory.observeHeld(Arrays.asList(385), 100);
 		assertFalse(a.equals(Strata.of(memory, memory.getBank(), 100).fingerprint()));
 	}
+
+	@Test
+	public void onTheFirstDayNothingIsDeepAndTheOneLayerSaysWhatItHolds()
+	{
+		Memory memory = new Memory();
+		memory.observeBank(bank(4151, 1, 385, 10), 500);
+		memory.observeHeld(Arrays.asList(385), 500);
+		Strata s = Strata.of(memory, memory.getBank(), 500);
+		assertEquals(1, s.getLayers().size());
+		// Everything is in it: what moved today and what was there before watching began.
+		assertEquals("Since watching began", s.getLayers().get(0).getName());
+		assertTrue("nothing has lain still a day yet", s.getOldest().isEmpty());
+		// A day on, both have lain still a day.
+		assertEquals(2, Strata.of(memory, memory.getBank(), 501).getOldest().size());
+	}
 }

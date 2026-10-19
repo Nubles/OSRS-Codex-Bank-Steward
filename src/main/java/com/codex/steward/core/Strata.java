@@ -20,7 +20,7 @@ public final class Strata
 	/** Each layer's name. */
 	static final String[] NAMES = {"This week", "This month", "1 to 3 months", "3 to 6 months", "6 to 12 months", "A year or more"};
 	/** Each layer's name when it is the deepest watching has reached, so its items may be older still. */
-	static final String[] OPEN = {"Today or more", "A week or more", "A month or more", "3 months or more", "6 months or more", "A year or more"};
+	static final String[] OPEN = {"Since watching began", "A week or more", "A month or more", "3 months or more", "6 months or more", "A year or more"};
 	/** Untouched this long counts as deep in the vault, for the headline share. */
 	public static final int DEEP = 90;
 	/** How many of the oldest items are named. */
@@ -145,7 +145,11 @@ public final class Strata
 			{
 				deep++;
 			}
-			all.add(new Old(id, days, memory.lastMoved(id) < 0));
+			if (days > 0)
+			{
+				// Moved today is not deep, even on the first day when nothing has had time to settle.
+				all.add(new Old(id, days, memory.lastMoved(id) < 0));
+			}
 		}
 		if (total == 0)
 		{

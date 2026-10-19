@@ -131,6 +131,12 @@ class StrataCard extends JComponent
 		return pct < 1 ? "<1%" : Math.min(99, pct) + "%";
 	}
 
+	/** The headline before three months are watched: how long, and the words after it. */
+	static String[] watched(long days)
+	{
+		return days <= 0 ? new String[]{"Day 1", "of watching"} : new String[]{Format.days(days), "watched so far"};
+	}
+
 	/** The short age under an icon: "45d", "8mo", "2y", with a plus when it may be older. */
 	static String shortAge(Strata.Old o)
 	{
@@ -179,8 +185,9 @@ class StrataCard extends JComponent
 		}
 		else
 		{
-			figure = Format.days(strata.getWatched());
-			says = "watched so far";
+			String[] watching = watched(strata.getWatched());
+			figure = watching[0];
+			says = watching[1];
 			tint = Theme.TEAL;
 		}
 		Ui.shadowed(g, figure, PAD, hy + bold.getAscent(), tint);
