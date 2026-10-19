@@ -53,17 +53,20 @@ final class ClearOutCard
 	 */
 	static Card progress(int gone, int total, long freed, long worth, Runnable finish)
 	{
-		boolean done = total > 0 && gone >= total;
+		// With every item left off there is nothing to do: the clear-out reads as finished.
+		boolean done = gone >= total;
 		Card card = new Card(new BorderLayout(0, 6));
 		card.highlighted(true);
 		card.accent(done ? Theme.GREEN : Theme.GOLD);
 		card.add(heading(done ? "Clear-out done" : "Clearing out", gone + " / " + total, done ? Theme.GREEN : Theme.GOLD_BRIGHT),
 			BorderLayout.NORTH);
-		card.add(new Bar(total == 0 ? 0 : gone / (double) total), BorderLayout.CENTER);
+		card.add(new Bar(total == 0 ? 1 : gone / (double) total), BorderLayout.CENTER);
 		JPanel south = new JPanel(new BorderLayout(0, 6));
 		south.setOpaque(false);
 		String slots = gone == 1 ? "1 slot" : gone + " slots";
-		String text = done
+		String text = total == 0
+			? "Nothing is left to clear: everything on it is kept or needed again."
+			: done
 			? "Every item is gone: " + slots + (freed > 0 ? " and about " + Format.coins(freed) + " freed." : " freed.")
 			: slots + " freed so far" + (worth > 0 ? ", " + Format.coins(freed) + " of " + Format.coins(worth) + "." : ".");
 		south.add(Ui.wrapped(text, Theme.small(), Theme.TEXT_MUTED, StewardPanel.WIDTH - 30), BorderLayout.NORTH);
