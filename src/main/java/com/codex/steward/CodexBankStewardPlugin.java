@@ -815,6 +815,12 @@ public class CodexBankStewardPlugin extends Plugin
 		snapshotDue = false;
 		lastSnapshot = profile == null ? null
 			: BankSnapshot.read(gson, configManager.getRSProfileConfiguration(CodexBankStewardConfig.GROUP, BankSnapshot.KEY));
+		if (profile != null && !config.shareBank() && configManager.getRSProfileConfiguration(CodexBankStewardConfig.GROUP, BankSnapshot.KEY) != null)
+		{
+			// Sharing was turned off while this account was not logged in: take its saved bank away now.
+			configManager.unsetConfiguration(CodexBankStewardConfig.GROUP, profile, BankSnapshot.KEY);
+			lastSnapshot = null;
+		}
 		plan = null;
 		plans = Plans.none();
 		if (profile == null)
