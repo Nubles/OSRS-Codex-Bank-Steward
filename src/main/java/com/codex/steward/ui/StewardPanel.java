@@ -1,6 +1,7 @@
 package com.codex.steward.ui;
 
 import com.codex.steward.core.Advice;
+import com.codex.steward.core.BankView;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
 import com.codex.steward.core.Placeholders;
@@ -56,6 +57,15 @@ public class StewardPanel extends PluginPanel
 
 		/** Ends the clear-out under way. */
 		void endClearOut();
+
+		/**
+		 * Shows the bank filtered to one of the Steward's lists.
+		 *
+		 * @param view {@link com.codex.steward.core.BankView#CLEAR_OUT} or {@link com.codex.steward.core.BankView#TIDY}
+		 */
+		default void showInBank(String view)
+		{
+		}
 	}
 
 	/** The guided clear-out: the plan for the list now, and the clear-out under way, if any. */
@@ -223,7 +233,13 @@ public class StewardPanel extends PluginPanel
 		crest.update(player, reckoning.freedValue(), status, new String[]{
 			String.valueOf(reckoning.freedSlots()),
 			reckoning.getTasksDone() + "/" + reckoning.getTasksTotal(),
-			String.valueOf(reckoning.getKept().size())}, alch);
+			String.valueOf(keptCount())}, alch);
+	}
+
+	/** Everything on the Kept page: kept items and kept placeholders alike. */
+	int keptCount()
+	{
+		return (reckoning == null ? 0 : reckoning.getKept().size()) + extras.keptPlaceholders.size();
 	}
 
 	private void rebuild()
@@ -279,7 +295,8 @@ public class StewardPanel extends PluginPanel
 			}
 			if (clearing.plan != null && !clearing.plan.isEmpty())
 			{
-				stack.add(ClearOutCard.plan(clearing.plan, actions == null ? null : actions::startClearOut));
+				stack.add(ClearOutCard.plan(clearing.plan, actions == null ? null : actions::startClearOut,
+					actions == null ? null : () -> actions.showInBank(BankView.CLEAR_OUT)));
 			}
 			lists(stack, spent, dust);
 		}
@@ -376,6 +393,10 @@ public class StewardPanel extends PluginPanel
 			how.append("Release a placeholder from its menu in the bank; the faded ones are marked there.");
 		}
 		stack.add(Ui.wrapped(how.toString().trim(), Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
+		if (actions != null)
+		{
+			stack.add(ClearOutCard.buttons(new CodexButton("Show in bank", false, () -> actions.showInBank(BankView.TIDY))));
+		}
 	}
 
 	private static String slotCount(int n)
@@ -441,7 +462,7 @@ public class StewardPanel extends PluginPanel
 			}
 		}
 		stack.add(ClearOutCard.progress(gone.size(), gone.size() + left.size(), freed, worth,
-			actions == null ? null : actions::endClearOut));
+			actions == null ? null : actions::endClearOut, actions == null || left.isEmpty() ? null : () -> actions.showInBank(BankView.CLEAR_OUT)));
 		if (!left.isEmpty())
 		{
 			long leftWorth = worth - freed;

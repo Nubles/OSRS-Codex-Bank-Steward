@@ -1,7 +1,9 @@
 package com.codex.steward;
 
 import com.codex.steward.core.Advice;
+import com.codex.steward.core.BankItems;
 import com.codex.steward.core.BankSnapshot;
+import com.codex.steward.core.BankView;
 import com.codex.steward.core.Catalog;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
@@ -53,6 +55,7 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
@@ -64,13 +67,18 @@ import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.RuneLiteConfig;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.RuneScapeProfileChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.banktags.BankTagsPlugin;
+import net.runelite.client.plugins.banktags.BankTagsService;
+import net.runelite.client.plugins.banktags.TagManager;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
@@ -83,6 +91,7 @@ import org.slf4j.LoggerFactory;
 	description = "What in your bank is safe to sell or drop: items whose quests and diaries are done, and items untouched for months, with the gold and slots they free",
 	tags = {"bank", "clean", "sell", "drop", "quest items", "diary", "space", "slots", "codex"}
 )
+@PluginDependency(BankTagsPlugin.class)
 public class CodexBankStewardPlugin extends Plugin
 {
 	private static final Logger log = LoggerFactory.getLogger(CodexBankStewardPlugin.class);
@@ -131,6 +140,13 @@ public class CodexBankStewardPlugin extends Plugin
 
 	@Inject
 	private CodexBankStewardConfig config;
+
+	/** RuneLite's Bank Tags, through which the bank can be shown filtered to one of the Steward's lists. */
+	@Inject
+	private TagManager tagManager;
+
+	@Inject
+	private BankTagsService bankTags;
 
 	private final BankMarks marks = new BankMarks();
 	private final Map<Integer, String> names = new HashMap<>();
@@ -189,6 +205,9 @@ public class CodexBankStewardPlugin extends Plugin
 	private int bankSeenTick;
 	/** The snapshot last written for this profile, or null. */
 	private BankSnapshot lastSnapshot;
+	/** The lists the bank can be shown filtered to, as last published; read by Bank Tags on the client thread. */
+	private BankView clearView = BankView.EMPTY;
+	private BankView tidyView = BankView.EMPTY;
 
 	@Provides
 	CodexBankStewardConfig provideConfig(ConfigManager configManager)
@@ -201,6 +220,19 @@ public class CodexBankStewardPlugin extends Plugin
 	{
 		catalog = loadCatalog();
 		lastPublished = null;
+		// The plugin is the same object when turned off and on again: what was read last time is not this login's.
+		progressRead = false;
+		heldSeen = false;
+		summaryShown = false;
+		summaryDue = false;
+		ironman = false;
+		held = Collections.emptySet();
+		heldCounts = Collections.emptyMap();
+		lastProgressRead = ticks - PROGRESS_TICKS;
+		clearView = BankView.EMPTY;
+		tidyView = BankView.EMPTY;
+		tagManager.registerTag(BankView.CLEAR_OUT, id -> clearView.contains(id, itemManager.canonicalize(id)));
+		tagManager.registerTag(BankView.TIDY, id -> tidyView.contains(id, id));
 		for (Quest quest : Quest.values())
 		{
 			quests.put(quest.name(), quest);
@@ -230,6 +262,12 @@ public class CodexBankStewardPlugin extends Plugin
 			public void endClearOut()
 			{
 				clientThread.invokeLater(CodexBankStewardPlugin.this::endClearOut);
+			}
+
+			@Override
+			public void showInBank(String view)
+			{
+				clientThread.invokeLater(() -> CodexBankStewardPlugin.this.showInBank(view));
 			}
 		});
 		navButton = NavigationButton.builder()
@@ -268,8 +306,14 @@ public class CodexBankStewardPlugin extends Plugin
 	{
 		overlayManager.remove(marks);
 		clientToolbar.removeNavigation(navButton);
+		tagManager.unregisterTag(BankView.CLEAR_OUT);
+		tagManager.unregisterTag(BankView.TIDY);
 		clientThread.invokeLater(() ->
 		{
+			// A view left open would show an empty bank with the Steward gone.
+			closeView();
+			clearView = BankView.EMPTY;
+			tidyView = BankView.EMPTY;
 			save();
 			writeSnapshot();
 			memory = null;
@@ -363,6 +407,15 @@ public class CodexBankStewardPlugin extends Plugin
 	@Subscribe
 	public void onRuneScapeProfileChanged(RuneScapeProfileChanged event)
 	{
+		if (configManager.getRSProfileKey() == null)
+		{
+			// Logging out can leave no profile at all until the next login. The account's memory
+			// stays in hand, saved, so the panel still shows its bank as last seen; the next login
+			// loads another account's only if it is another account.
+			save();
+			writeSnapshot();
+			return;
+		}
 		switchProfile();
 	}
 
@@ -397,6 +450,11 @@ public class CodexBankStewardPlugin extends Plugin
 	private boolean ensureProfile()
 	{
 		String key = configManager.getRSProfileKey();
+		if (key == null)
+		{
+			// Not known yet: nothing seen now can be filed under an account.
+			return false;
+		}
 		if (!Objects.equals(key, profile))
 		{
 			switchProfile();
@@ -474,6 +532,47 @@ public class CodexBankStewardPlugin extends Plugin
 			plans = read;
 			reckonDirty = true;
 		}
+	}
+
+	@Subscribe
+	public void onWidgetClosed(WidgetClosed event)
+	{
+		if (event.getGroupId() == InterfaceID.BANKMAIN && event.isUnload())
+		{
+			// Bank Tags remembers the open tab for the next visit; a filtered view lasts one visit.
+			closeView();
+		}
+	}
+
+	/** Closes the bank's filtered view if it is one of the Steward's. Client thread only. */
+	private void closeView()
+	{
+		String active = bankTags.getActiveTag();
+		if (BankView.CLEAR_OUT.equals(active) || BankView.TIDY.equals(active))
+		{
+			bankTags.closeBankTag();
+		}
+	}
+
+	/** Shows the bank filtered to one of the Steward's lists, or says in the chat box why it cannot. */
+	private void showInBank(String tag)
+	{
+		BankView view = BankView.TIDY.equals(tag) ? tidyView : clearView;
+		// Bank Tags is on unless turned off, the way RuneLite itself decides it.
+		boolean tagsOn = !"false".equals(configManager.getConfiguration(RuneLiteConfig.GROUP_NAME, "banktagsplugin"));
+		BankView.Refusal refusal = view.refusal(bankOpen(), tagsOn);
+		if (refusal != null)
+		{
+			chatMessageManager.queue(QueuedMessage.builder()
+				.type(ChatMessageType.CONSOLE)
+				.runeLiteFormattedMessage(new ChatMessageBuilder()
+					.append(ChatColorType.HIGHLIGHT).append("Codex Bank Steward: ")
+					.append(ChatColorType.NORMAL).append(BankView.explain(refusal, tag))
+					.build())
+				.build());
+			return;
+		}
+		bankTags.openBankTag(tag, BankTagsService.OPTION_NO_LAYOUT);
 	}
 
 	@Subscribe
@@ -689,20 +788,19 @@ public class CodexBankStewardPlugin extends Plugin
 
 	private Map<Integer, Long> contents(ItemContainer container)
 	{
-		Map<Integer, Long> items = new HashMap<>();
 		if (container == null)
 		{
-			return items;
+			return new HashMap<>();
 		}
-		for (Item item : container.getItems())
+		Item[] slots = container.getItems();
+		int[] ids = new int[slots.length];
+		int[] quantities = new int[slots.length];
+		for (int i = 0; i < slots.length; i++)
 		{
-			if (item.getId() < 0 || item.getQuantity() <= 0 || isPlaceholder(item.getId()))
-			{
-				continue;
-			}
-			items.merge(itemManager.canonicalize(item.getId()), (long) item.getQuantity(), Long::sum);
+			ids[i] = slots[i].getId();
+			quantities[i] = slots[i].getQuantity();
 		}
-		return items;
+		return BankItems.count(ids, quantities, this::isPlaceholder, itemManager::canonicalize);
 	}
 
 	private boolean isPlaceholder(int itemId)
@@ -1084,6 +1182,8 @@ public class CodexBankStewardPlugin extends Plugin
 		List<Integer> cleared = session == null ? Collections.emptyList()
 			: ClearOut.cleared(session, memory.getBank(), held);
 		List<Shortfall.Goal> shownToGet = shown == null ? Collections.emptyList() : toGet;
+		clearView = BankView.clearOut(shownPlan, session, cleared);
+		tidyView = BankView.tidy(releasable, shownDecants);
 		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + state + "|" + name + "|" + alch
 			+ "|" + ironman + "|" + toGetKey(shownToGet)
 			+ "|" + (shownPlan == null ? 0 : shownPlan.totalGain()) + "|" + (session == null ? -1 : session.getStarted() + ":" + session.getItems().size())

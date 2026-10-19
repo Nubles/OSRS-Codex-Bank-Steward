@@ -10,10 +10,12 @@ import java.awt.FontMetrics;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridLayout;
 import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 import java.util.List;
+import javax.swing.Box;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 
@@ -30,6 +32,12 @@ final class ClearOutCard
 	/** The plan, before a clear-out begins. */
 	static Card plan(ClearOut plan, Runnable begin)
 	{
+		return plan(plan, begin, null);
+	}
+
+	/** @param show shows the bank filtered to the list, or null for no such button */
+	static Card plan(ClearOut plan, Runnable begin, Runnable show)
+	{
 		Card card = new Card(new BorderLayout(0, 6));
 		card.highlighted(true);
 		card.add(heading("Clear-out plan", Format.coins(plan.totalGain()), Theme.GOLD_BRIGHT), BorderLayout.NORTH);
@@ -38,9 +46,18 @@ final class ClearOutCard
 		south.setOpaque(false);
 		south.add(Ui.wrapped("Most valuable first. Each is ticked off once it leaves your bank and pack.",
 			Theme.small(), Theme.TEXT_MUTED, StewardPanel.WIDTH - 30), BorderLayout.NORTH);
+		List<JComponent> buttons = new ArrayList<>();
 		if (begin != null)
 		{
-			south.add(buttons(new CodexButton("Begin the clear-out", true, begin)), BorderLayout.SOUTH);
+			buttons.add(new CodexButton("Begin the clear-out", true, begin));
+		}
+		if (show != null)
+		{
+			buttons.add(new CodexButton("Show in bank", false, show));
+		}
+		if (!buttons.isEmpty())
+		{
+			south.add(buttons(buttons.toArray(new JComponent[0])), BorderLayout.SOUTH);
 		}
 		card.add(south, BorderLayout.SOUTH);
 		return card;
@@ -84,6 +101,12 @@ final class ClearOutCard
 	 */
 	static Card progress(int gone, int total, long freed, long worth, Runnable finish)
 	{
+		return progress(gone, total, freed, worth, finish, null);
+	}
+
+	/** @param show shows the bank filtered to what is left to clear, or null for no such button */
+	static Card progress(int gone, int total, long freed, long worth, Runnable finish, Runnable show)
+	{
 		// With every item left off there is nothing to do: the clear-out reads as finished.
 		boolean done = gone >= total;
 		Card card = new Card(new BorderLayout(0, 6));
@@ -101,9 +124,18 @@ final class ClearOutCard
 			? "Every item is gone: " + slots + (freed > 0 ? " and about " + Format.coins(freed) + " freed." : " freed.")
 			: slots + " freed so far" + (worth > 0 ? ", " + Format.coins(freed) + " of " + Format.coins(worth) + "." : ".");
 		south.add(Ui.wrapped(text, Theme.small(), Theme.TEXT_MUTED, StewardPanel.WIDTH - 30), BorderLayout.NORTH);
+		List<JComponent> buttons = new ArrayList<>();
+		if (show != null && !done)
+		{
+			buttons.add(new CodexButton("Show in bank", true, show));
+		}
 		if (finish != null)
 		{
-			south.add(buttons(new CodexButton(done ? "Close" : "Stop here", done, finish)), BorderLayout.SOUTH);
+			buttons.add(new CodexButton(done ? "Close" : "Stop here", done, finish));
+		}
+		if (!buttons.isEmpty())
+		{
+			south.add(buttons(buttons.toArray(new JComponent[0])), BorderLayout.SOUTH);
 		}
 		card.add(south, BorderLayout.SOUTH);
 		return card;
@@ -118,13 +150,36 @@ final class ClearOutCard
 		return row;
 	}
 
-	private static JPanel buttons(JComponent button)
+	/** Buttons side by side when they fit the card, else one under another, each at its own width. */
+	static JPanel buttons(JComponent... buttons)
 	{
-		JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-		row.setOpaque(false);
-		row.add(button);
-		return row;
+		int width = 0;
+		for (JComponent b : buttons)
+		{
+			width += b.getPreferredSize().width + GAP;
+		}
+		boolean fits = width - GAP <= StewardPanel.WIDTH - 30;
+		JPanel column = new JPanel(new GridLayout(0, 1, 0, GAP));
+		column.setOpaque(false);
+		JPanel row = null;
+		for (JComponent b : buttons)
+		{
+			if (row == null || !fits)
+			{
+				row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+				row.setOpaque(false);
+				column.add(row);
+			}
+			else
+			{
+				row.add(Box.createHorizontalStrut(GAP));
+			}
+			row.add(b);
+		}
+		return column;
 	}
+
+	private static final int GAP = 6;
 
 	/** One line for each way of clearing: a diamond in its colour, how many, and what it brings. */
 	private static final class RouteLines extends JComponent

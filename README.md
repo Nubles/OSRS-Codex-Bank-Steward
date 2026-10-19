@@ -24,6 +24,7 @@ It is the seventh plugin in the **Codex** suite, after [Codex Navigator](https:/
 - **Untradeable dust, if you want it.** An option lists untradeable items untouched past the dust time, apart and under a warning, never in the totals. It is off by default.
 - **Kept.** Click any item on the list to keep it. Kept items stay off the list until you let them go.
 - **Bank marks.** In the bank, items whose work is done carry a small gold diamond and dusty items a ring of ash, so you can clear the list without looking back at the panel.
+- **Show in bank.** With the bank open, *Show in bank* on the clear-out plan narrows the bank to just the items on the list, the way a bank tag tab does, so you can withdraw them in one sweep; during a clear-out it shows only what is still to go. The Tidy up section has its own, for the potions to decant and the placeholders to release. Typing `tag:steward` or `tag:steward-tidy` in the bank search does the same. It uses RuneLite's Bank Tags plugin, never changes your own tags, and the view closes with the bank.
 - **Ironman friendly.** Values are Grand Exchange prices, or high alchemy on ironman accounts (the *Value items at* option chooses).
 - **Bank summary.** The first time you open your bank each login, a line in the chat box says how many items could go and what they would free. It can be turned off.
 
@@ -68,7 +69,7 @@ The shape only grows; a breaking change would get a new key. It is written a mom
 
 ## Rules posture
 
-Codex Bank Steward only reads what the game already shows you: your bank, inventory and worn items, quest and diary progress, and RuneLite's own item prices, plus the kits, goals and savings goal Codex Quartermaster, Codex Navigator and Codex Gear Roadmap save in your RuneLite profile, which it never changes. The only thing it writes beyond its own memory is the shared bank above, in its own config group. It does not click, change menus, or send anything over the network.
+Codex Bank Steward only reads what the game already shows you: your bank, inventory and worn items, quest and diary progress, and RuneLite's own item prices, plus the kits, goals and savings goal Codex Quartermaster, Codex Navigator and Codex Gear Roadmap save in your RuneLite profile, which it never changes. The only thing it writes beyond its own memory is the shared bank above, in its own config group. Show in bank only filters what the bank window displays, through RuneLite's own Bank Tags plugin, as a tag tab would. It does not click, change menus, or send anything over the network.
 
 ## Development
 
