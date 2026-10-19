@@ -131,4 +131,31 @@ public class PlansContractTest
 		}
 		assertTrue(named);
 	}
+
+	@Test
+	public void aNavigatorLevelGoalIsKeptButAsksForNoItems() throws Exception
+	{
+		// Written by Navigator's saveGoals for Goal.level(THIEVING, 91) and three other goals.
+		List<String> goals = Plans.readGoals(GSON, fixture("navigator-goals-level.json"));
+		assertEquals(Arrays.asList("skill:Thieving 91", "quest:Dragon Slayer II", "diary:Ardougne Hard", "cape:Quest point cape"), goals);
+		Catalog catalog;
+		try (Reader reader = new InputStreamReader(PlansContractTest.class.getResourceAsStream("/com/codex/steward/steward-data.json"),
+			StandardCharsets.UTF_8))
+		{
+			catalog = new Catalog(GSON.fromJson(reader, Catalog.Data.class));
+		}
+		assertEquals("a level needs no items", 0, catalog.goalTasks("skill:Thieving 91").length);
+		Plans plans = new Plans(java.util.Collections.emptyList(), goals);
+		Plans withoutLevel = new Plans(java.util.Collections.emptyList(), goals.subList(1, 4));
+		assertEquals(withoutLevel.pinnedTasks(catalog), plans.pinnedTasks(catalog));
+		List<Shortfall.Goal> toGet = Shortfall.of(catalog, plans, new boolean[catalog.getTasks().size()], new java.util.HashMap<>(),
+			id -> 1000, id -> true);
+		for (Shortfall.Goal g : toGet)
+		{
+			assertFalse("no To get card for a level goal", g.getName().contains("Thieving"));
+		}
+		assertEquals(Shortfall.of(catalog, withoutLevel, new boolean[catalog.getTasks().size()], new java.util.HashMap<>(),
+			id -> 1000, id -> true).size(), toGet.size());
+	}
 }
+
