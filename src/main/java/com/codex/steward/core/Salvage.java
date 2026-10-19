@@ -54,7 +54,9 @@ public final class Salvage
 				continue;
 			}
 			JsonElement trimmed = trim(gson, field.getKey(), value, type);
-			if (trimmed != null)
+			// A list where a map belongs trims to an empty list that still does not fit; then the
+			// field is lost alone, not with everything else.
+			if (trimmed != null && fits(gson, field.getKey(), trimmed, type))
 			{
 				kept.add(field.getKey(), trimmed);
 			}

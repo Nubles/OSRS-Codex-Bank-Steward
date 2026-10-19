@@ -79,9 +79,78 @@ final class Damaged
 				out.add(good.substring(0, t[0]) + k + good.substring(t[1]));
 			}
 		}
+		// A list where a map belongs, or a map where a list does: a value kept in an older shape.
+		for (int[] t : first(containers(good)))
+		{
+			String with = good.charAt(t[0]) == '[' ? "{\"0\":1}" : "[1,2]";
+			out.add(good.substring(0, t[0]) + with + good.substring(t[1]));
+		}
 		List<String> all = anyValue();
 		all.addAll(out);
 		return all;
+	}
+
+	/** The [start, end) spans of every list or map that is a field's value, outside strings. */
+	private static List<int[]> containers(String s)
+	{
+		List<int[]> out = new ArrayList<>();
+		for (int i = 1; i < s.length(); i++)
+		{
+			char c = s.charAt(i);
+			if ((c == '[' || c == '{') && s.charAt(i - 1) == ':' && !inString(s, i))
+			{
+				int depth = 0;
+				boolean quoted = false;
+				for (int j = i; j < s.length(); j++)
+				{
+					char d = s.charAt(j);
+					if (quoted)
+					{
+						if (d == '\\')
+						{
+							j++;
+						}
+						else if (d == '"')
+						{
+							quoted = false;
+						}
+						continue;
+					}
+					if (d == '"')
+					{
+						quoted = true;
+					}
+					else if (d == '[' || d == '{')
+					{
+						depth++;
+					}
+					else if ((d == ']' || d == '}') && --depth == 0)
+					{
+						out.add(new int[]{i, j + 1});
+						break;
+					}
+				}
+			}
+		}
+		return out;
+	}
+
+	private static boolean inString(String s, int at)
+	{
+		boolean quoted = false;
+		for (int i = 0; i < at; i++)
+		{
+			char c = s.charAt(i);
+			if (quoted && c == '\\')
+			{
+				i++;
+			}
+			else if (c == '"')
+			{
+				quoted = !quoted;
+			}
+		}
+		return quoted;
 	}
 
 	private static List<int[]> first(List<int[]> tokens)
