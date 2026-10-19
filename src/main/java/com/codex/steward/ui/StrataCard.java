@@ -44,6 +44,8 @@ class StrataCard extends JComponent
 
 	private final Strata strata;
 	private final ItemIcons icons;
+	/** Handed over each time an icon is asked for, so a row waiting on a picture is told once. */
+	private final Runnable repaint = this::repaint;
 	private final IntFunction<String> names;
 	private final int coreH;
 	private final int vaultY;
@@ -267,7 +269,7 @@ class StrataCard extends JComponent
 				g.fill(well);
 				g.setColor(Theme.STROKE_SOFT);
 				g.draw(well);
-				BufferedImage icon = icons == null ? null : icons.icon(o.getItemId(), this::repaint);
+				BufferedImage icon = icons == null ? null : icons.icon(o.getItemId(), repaint);
 				if (icon != null)
 				{
 					Composite was = g.getComposite();

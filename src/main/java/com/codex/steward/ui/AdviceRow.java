@@ -35,6 +35,8 @@ class AdviceRow extends JComponent
 	private final String more;
 	private final boolean alch;
 	private final ItemIcons icons;
+	/** Handed over each time an icon is asked for, so a row waiting on a picture is told once. */
+	private final Runnable repaint = this::repaint;
 	private boolean hover;
 	private String route;
 	private Color routeColor;
@@ -200,7 +202,7 @@ class AdviceRow extends JComponent
 		g.fill(well);
 		g.setColor(hover ? Theme.alpha(Theme.GOLD, 90) : Theme.STROKE_SOFT);
 		g.draw(well);
-		BufferedImage icon = icons == null ? null : icons.icon(advice.getItemId(), this::repaint);
+		BufferedImage icon = icons == null ? null : icons.icon(advice.getItemId(), repaint);
 		if (icon != null)
 		{
 			Graphics2D ig = (Graphics2D) g.create();

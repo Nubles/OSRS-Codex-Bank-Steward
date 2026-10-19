@@ -1,9 +1,8 @@
 package com.codex.steward.ui;
 
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -19,6 +18,9 @@ import net.runelite.client.util.AsyncBufferedImage;
  * forever. Here a picture is watched once; every row that asked before it arrived is told when it
  * does, and a row asking after is just handed the picture.
  *
+ * <p>A row should hand over the same callback each time it asks, such as a repaint kept in a field,
+ * so a row painting many times while a picture loads is told once and never crowds out another.</p>
+ *
  * <p>Asked on the Swing thread, where the callbacks also run.</p>
  */
 public final class LoadingIcons implements ItemIcons
@@ -28,7 +30,9 @@ public final class LoadingIcons implements ItemIcons
 	/** Pictures that have arrived; weak, so the item manager's cache decides how long they live. */
 	private final Set<AsyncBufferedImage> arrived = Collections.newSetFromMap(new WeakHashMap<>());
 	/** For each picture still loading, the callbacks waiting on it. */
-	private final Map<AsyncBufferedImage, List<Runnable>> waiting = new WeakHashMap<>();
+	private final Map<AsyncBufferedImage, Set<Runnable>> waiting = new WeakHashMap<>();
+	/** Most callbacks kept for one picture, so one that never arrives cannot gather them without end. */
+	static final int MOST_WAITING = 256;
 
 	public LoadingIcons(IntFunction<AsyncBufferedImage> source)
 	{
@@ -49,17 +53,17 @@ public final class LoadingIcons implements ItemIcons
 		{
 			return image;
 		}
-		List<Runnable> queue = waiting.get(image);
+		Set<Runnable> queue = waiting.get(image);
 		if (queue == null)
 		{
-			List<Runnable> fresh = new ArrayList<>();
+			Set<Runnable> fresh = new LinkedHashSet<>();
 			waiting.put(image, fresh);
 			queue = fresh;
 			// Runs on the client thread when the picture arrives; the rows hear of it on Swing's.
 			image.onLoaded(() -> swing.execute(() ->
 			{
 				arrived.add(image);
-				List<Runnable> told = waiting.remove(image);
+				Set<Runnable> told = waiting.remove(image);
 				if (told != null)
 				{
 					told.forEach(Runnable::run);
@@ -67,7 +71,7 @@ public final class LoadingIcons implements ItemIcons
 			}));
 		}
 		// A row painting while the picture loads asks each frame; it need only be told once.
-		if (queue.size() < 64)
+		if (queue.size() < MOST_WAITING)
 		{
 			queue.add(onLoaded);
 		}
