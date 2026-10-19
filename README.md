@@ -46,9 +46,25 @@ Nothing is ever sold, dropped or withdrawn for you. The Steward only advises.
 
 Clue STASH gear is read from RuneLite's own emote clue list, and the quests each Navigator goal needs first from Codex Navigator's quest data. The list of which quests and diaries need which items comes from [Quest Helper](https://github.com/Zoinkwiz/quest-helper) (BSD 2-Clause), read by running its own helpers, so it covers 263 quests, miniquests, diary tiers and Recipe for Disaster's parts, including the items each quest only names in its steps. Quests Quest Helper has no helper for yet (Learning the Ropes, The Frozen Door, Into the Tombs) are listed with no items, so a Navigator goal naming them still counts them. Each part of Recipe for Disaster is read on its own, so a finished part frees its items. `tools/README.md` has the steps to rebuild `steward-data.json` when new quests release.
 
+## The shared bank (for other plugins)
+
+Each time you use your bank, the Steward saves the whole bank as last seen in your RuneLite profile, so other Codex plugins know what is in it without opening it themselves: Plunder Pilot finds a freshly found Pharaoh's sceptre, Pest Control Pilot counts your void seals, Quartermaster counts your supplies before it has seen the bank. The *Share bank with Codex* option turns this off and removes the saved copy.
+
+It is a documented contract. Group `codexbanksteward`, RS profile key `bankV1`:
+
+```json
+{"version":1,"savedAt":1760000000000,"items":{"385":240,"995":1234567,"26950":1},"truncated":false}
+```
+
+- `items`: every item in the bank by canonical item id (placeholders and noted forms folded into the item) with its quantity, in ascending id order. Potion storage and the inventory are not included.
+- `savedAt`: when the bank was last seen, in epoch milliseconds. An unchanged bank is written again at most every five minutes, so it can be up to that old while you bank.
+- `truncated`: true only if the bank held more than 2,000 kinds of item and the highest ids were left out.
+
+The shape only grows; a breaking change would get a new key. It is written a moment after the bank settles, on logout, on a profile switch and when the client closes. `BankSnapshotTest` pins it, and each reader's tests hold a copy of the same JSON. Readers should treat a missing or unreadable value as no snapshot and fall back to what they had before.
+
 ## Rules posture
 
-Codex Bank Steward only reads what the game already shows you: your bank, inventory and worn items, quest and diary progress, and RuneLite's own item prices, plus the kits and goals Codex Quartermaster and Codex Navigator save in your RuneLite profile, which it never changes. It does not click, change menus, or send anything over the network.
+Codex Bank Steward only reads what the game already shows you: your bank, inventory and worn items, quest and diary progress, and RuneLite's own item prices, plus the kits and goals Codex Quartermaster and Codex Navigator save in your RuneLite profile, which it never changes. The only thing it writes beyond its own memory is the shared bank above, in its own config group. It does not click, change menus, or send anything over the network.
 
 ## Development
 

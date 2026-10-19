@@ -1,6 +1,7 @@
 package com.codex.steward;
 
 import com.codex.steward.core.Advice;
+import com.codex.steward.core.BankSnapshot;
 import com.codex.steward.core.Catalog;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
@@ -46,6 +47,8 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.widgets.Widget;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.VarbitID;
@@ -88,6 +91,13 @@ public class CodexBankStewardPlugin extends Plugin
 	private static final int SAVE_TICKS = 50;
 	/** Ticks between fresh reckonings, so prices and the day stay current. */
 	private static final int REFRESH_TICKS = 500;
+	/**
+	 * Ticks of quiet after a bank change before the shared snapshot is written, so a withdraw of
+	 * many items in a row writes it once.
+	 */
+	private static final int SNAPSHOT_SETTLE_TICKS = 2;
+	/** An unchanged bank's snapshot is written again after this long, so its time stays fresh. */
+	private static final long SNAPSHOT_REFRESH_MS = 5 * 60_000L;
 
 	@Inject
 	private Client client;
@@ -153,6 +163,12 @@ public class CodexBankStewardPlugin extends Plugin
 	private int lastProgressRead = -PROGRESS_TICKS;
 	/** What the panel was last handed, so an unchanged reckoning is not drawn again. */
 	private String lastPublished;
+	/** The bank was seen and the shared snapshot is still to be written; with when it was seen. */
+	private boolean snapshotDue;
+	private long bankSeenAt;
+	private int bankSeenTick;
+	/** The snapshot last written for this profile, or null. */
+	private BankSnapshot lastSnapshot;
 
 	@Provides
 	CodexBankStewardConfig provideConfig(ConfigManager configManager)
@@ -216,6 +232,10 @@ public class CodexBankStewardPlugin extends Plugin
 				if (bank != null && memory != null)
 				{
 					unsaved |= memory.observeBank(contents(bank), today());
+					if (bankOpen())
+					{
+						bankSeen();
+					}
 				}
 			}
 			reckonDirty = true;
@@ -230,7 +250,10 @@ public class CodexBankStewardPlugin extends Plugin
 		clientThread.invokeLater(() ->
 		{
 			save();
+			writeSnapshot();
 			memory = null;
+			lastSnapshot = null;
+			snapshotDue = false;
 			profile = null;
 			reckoning = null;
 			plan = null;
@@ -273,7 +296,8 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			try
 			{
-				if (save())
+				boolean saved = save();
+				if (writeSnapshot() || saved)
 				{
 					configManager.sendConfig();
 				}
@@ -299,6 +323,7 @@ public class CodexBankStewardPlugin extends Plugin
 		else if (state == GameState.LOGIN_SCREEN)
 		{
 			save();
+			writeSnapshot();
 			summaryDue = false;
 			summaryShown = false;
 			progressRead = false;
@@ -321,6 +346,7 @@ public class CodexBankStewardPlugin extends Plugin
 	private void switchProfile()
 	{
 		save();
+		writeSnapshot();
 		loadProfile();
 		done = new boolean[catalog.getTasks().size()];
 		ironman = false;
@@ -352,8 +378,9 @@ public class CodexBankStewardPlugin extends Plugin
 	public void onConfigChanged(ConfigChanged event)
 	{
 		String group = event.getGroup();
-		// The Steward's own saved memory is not an option: saving it changes nothing shown.
-		boolean ours = CodexBankStewardConfig.GROUP.equals(group) && !MEMORY_KEY.equals(event.getKey());
+		// The Steward's own saved memory and bank snapshot are not options: saving them changes nothing shown.
+		boolean ours = CodexBankStewardConfig.GROUP.equals(group) && !MEMORY_KEY.equals(event.getKey())
+			&& !BankSnapshot.KEY.equals(event.getKey());
 		boolean plansChanged = Plans.QUARTERMASTER.equals(group)
 			&& (Plans.KITS_KEY.equals(event.getKey()) || Plans.QUARTERS_KEY.equals(event.getKey()))
 			|| Plans.NAVIGATOR.equals(group) && Plans.GOALS_KEY.equals(event.getKey());
@@ -364,6 +391,11 @@ public class CodexBankStewardPlugin extends Plugin
 		if (ours)
 		{
 			marks.setEnabled(config.bankMarks());
+		}
+		if (ours && "shareBank".equals(event.getKey()))
+		{
+			clientThread.invokeLater(this::shareBankChanged);
+			return;
 		}
 		clientThread.invokeLater(() ->
 		{
@@ -433,6 +465,7 @@ public class CodexBankStewardPlugin extends Plugin
 			}
 			unsaved |= memory.observeBank(contents(event.getItemContainer()), today());
 			reckonDirty = true;
+			bankSeen();
 		}
 		else if (id == InventoryID.INV || id == InventoryID.WORN)
 		{
@@ -470,6 +503,77 @@ public class CodexBankStewardPlugin extends Plugin
 		if (unsaved && ticks % SAVE_TICKS == 0)
 		{
 			save();
+		}
+		if (snapshotDue && ticks - bankSeenTick >= SNAPSHOT_SETTLE_TICKS)
+		{
+			writeSnapshot();
+		}
+	}
+
+	/** The bank window is open now; its item container outlives it until logout. */
+	private boolean bankOpen()
+	{
+		Widget bank = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
+		return client.getGameState() == GameState.LOGGED_IN && bank != null && !bank.isHidden();
+	}
+
+	/** The bank was just seen: the shared snapshot is written once it settles. */
+	private void bankSeen()
+	{
+		snapshotDue = true;
+		bankSeenAt = System.currentTimeMillis();
+		bankSeenTick = ticks;
+	}
+
+	/**
+	 * Publishes the bank as last seen for the other Codex plugins (see {@link BankSnapshot}).
+	 * Written only when the items changed or the last one is getting old, and only for the
+	 * profile whose bank it is.
+	 *
+	 * @return whether anything was written
+	 */
+	private boolean writeSnapshot()
+	{
+		if (!snapshotDue)
+		{
+			return false;
+		}
+		snapshotDue = false;
+		if (profile == null || memory == null || !memory.hasSeenBank() || !config.shareBank())
+		{
+			return false;
+		}
+		BankSnapshot snap = BankSnapshot.of(memory.getBank(), bankSeenAt);
+		if (snap.sameItems(lastSnapshot) && bankSeenAt - lastSnapshot.getSavedAt() < SNAPSHOT_REFRESH_MS)
+		{
+			return false;
+		}
+		lastSnapshot = snap;
+		configManager.setConfiguration(CodexBankStewardConfig.GROUP, profile, BankSnapshot.KEY, gson.toJson(snap));
+		return true;
+	}
+
+	/** Sharing was turned on or off: write the snapshot when the bank is next seen, or take the saved one away. */
+	private void shareBankChanged()
+	{
+		if (profile == null)
+		{
+			return;
+		}
+		if (config.shareBank())
+		{
+			// Written at the next bank visit, or now if the bank is open: only then is its time known.
+			lastSnapshot = null;
+			if (bankOpen())
+			{
+				bankSeen();
+			}
+		}
+		else
+		{
+			snapshotDue = false;
+			lastSnapshot = null;
+			configManager.unsetConfiguration(CodexBankStewardConfig.GROUP, profile, BankSnapshot.KEY);
 		}
 	}
 
@@ -680,6 +784,9 @@ public class CodexBankStewardPlugin extends Plugin
 		profile = configManager.getRSProfileKey();
 		memory = null;
 		reckoning = null;
+		snapshotDue = false;
+		lastSnapshot = profile == null ? null
+			: BankSnapshot.read(gson, configManager.getRSProfileConfiguration(CodexBankStewardConfig.GROUP, BankSnapshot.KEY));
 		plan = null;
 		plans = Plans.none();
 		if (profile == null)

@@ -123,4 +123,15 @@ public interface CodexBankStewardConfig extends Config
 	{
 		return false;
 	}
+
+	@ConfigItem(
+		keyName = "shareBank",
+		name = "Share bank with Codex",
+		description = "Save your whole bank as last seen in your RuneLite profile, so other Codex plugins (Plunder Pilot, Pest Control Pilot, Quartermaster) know what is in it without opening it themselves. Turning it off removes the saved copy",
+		position = 8
+	)
+	default boolean shareBank()
+	{
+		return true;
+	}
 }
