@@ -5,10 +5,13 @@ import com.codex.steward.core.BankSnapshot;
 import com.codex.steward.core.Catalog;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
+import com.codex.steward.core.Placeholders;
 import com.codex.steward.core.Plans;
 import com.codex.steward.core.Reckoning;
+import com.codex.steward.core.SavingsGoal;
 import com.codex.steward.core.Shortfall;
 import com.codex.steward.core.Task;
+import com.codex.steward.core.Tidy;
 import com.codex.steward.overlay.BankMarks;
 import com.codex.steward.ui.Format;
 import com.codex.steward.ui.ItemIcons;
@@ -24,6 +27,7 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -132,6 +136,16 @@ public class CodexBankStewardPlugin extends Plugin
 	private final Map<Integer, String> names = new HashMap<>();
 	private final Map<Integer, Boolean> tradeable = new HashMap<>();
 	private final Map<Integer, Integer> alchPrice = new HashMap<>();
+	/** Whether the game offers to drink an item, which tells a potion from a charged amulet. */
+	private final Map<Integer, Boolean> drinkable = new HashMap<>();
+	/** The bank's empty placeholders as last seen this login: the item each holds a slot for, to its own id. */
+	private Map<Integer, Integer> placeholderIds = Collections.emptyMap();
+	/** Empty placeholders worth releasing, and potions worth decanting, for the bank as last seen. */
+	private List<Placeholders.Line> oldPlaceholders = Collections.emptyList();
+	private List<Tidy.Decant> decants = Collections.emptyList();
+	/** Codex Gear Roadmap's savings goal as it saved it, or null; and how far the list takes it. */
+	private String savingsJson;
+	private SavingsGoal savingsGoal;
 	/** The account is an ironman of any kind, read with quest progress. */
 	private boolean ironman;
 	private final Map<String, Quest> quests = new HashMap<>();
@@ -238,6 +252,7 @@ public class CodexBankStewardPlugin extends Plugin
 				if (bank != null && memory != null)
 				{
 					unsaved |= memory.observeBank(contents(bank), today());
+					unsaved |= memory.observePlaceholders(placeholders(bank), today());
 					if (bankOpen())
 					{
 						bankSeen();
@@ -267,6 +282,12 @@ public class CodexBankStewardPlugin extends Plugin
 			names.clear();
 			tradeable.clear();
 			alchPrice.clear();
+			drinkable.clear();
+			placeholderIds = Collections.emptyMap();
+			oldPlaceholders = Collections.emptyList();
+			decants = Collections.emptyList();
+			savingsJson = null;
+			savingsGoal = null;
 		});
 		panel = null;
 	}
@@ -364,6 +385,8 @@ public class CodexBankStewardPlugin extends Plugin
 		summaryDue = false;
 		progressDirty = true;
 		reckonDirty = true;
+		placeholderIds = Collections.emptyMap();
+		oldPlaceholders = Collections.emptyList();
 	}
 
 	/**
@@ -390,7 +413,8 @@ public class CodexBankStewardPlugin extends Plugin
 			&& !BankSnapshot.KEY.equals(event.getKey());
 		boolean plansChanged = Plans.QUARTERMASTER.equals(group)
 			&& (Plans.KITS_KEY.equals(event.getKey()) || Plans.QUARTERS_KEY.equals(event.getKey()))
-			|| Plans.NAVIGATOR.equals(group) && Plans.GOALS_KEY.equals(event.getKey());
+			|| Plans.NAVIGATOR.equals(group) && Plans.GOALS_KEY.equals(event.getKey())
+			|| SavingsGoal.GROUP.equals(group) && SavingsGoal.KEY.equals(event.getKey());
 		if (!ours && !plansChanged)
 		{
 			return;
@@ -438,6 +462,12 @@ public class CodexBankStewardPlugin extends Plugin
 			List<String> goals = Plans.readGoals(gson, configManager.getConfiguration(Plans.NAVIGATOR, profile, Plans.GOALS_KEY));
 			read = new Plans(kits, goals);
 		}
+		String savings = profile != null && config.codexPlans() ? configManager.getConfiguration(SavingsGoal.GROUP, profile, SavingsGoal.KEY) : null;
+		if (!Objects.equals(savings, savingsJson))
+		{
+			savingsJson = savings;
+			reckonDirty = true;
+		}
 		// Quartermaster saves "quarters" whenever the bank changes; only a real change re-reckons.
 		if (!read.equals(plans))
 		{
@@ -471,6 +501,7 @@ public class CodexBankStewardPlugin extends Plugin
 				summaryDue = true;
 			}
 			unsaved |= memory.observeBank(contents(event.getItemContainer()), today());
+			unsaved |= memory.observePlaceholders(placeholders(event.getItemContainer()), today());
 			reckonDirty = true;
 			bankSeen();
 		}
@@ -665,13 +696,36 @@ public class CodexBankStewardPlugin extends Plugin
 		}
 		for (Item item : container.getItems())
 		{
-			if (item.getId() < 0 || item.getQuantity() <= 0)
+			if (item.getId() < 0 || item.getQuantity() <= 0 || isPlaceholder(item.getId()))
 			{
 				continue;
 			}
 			items.merge(itemManager.canonicalize(item.getId()), (long) item.getQuantity(), Long::sum);
 		}
 		return items;
+	}
+
+	private boolean isPlaceholder(int itemId)
+	{
+		return itemManager.getItemComposition(itemId).getPlaceholderTemplateId() != -1;
+	}
+
+	/**
+	 * The bank's empty placeholders: the items they hold a slot for. Their own ids are kept for
+	 * the bank marks, which see the placeholder rather than the item.
+	 */
+	private Set<Integer> placeholders(ItemContainer bank)
+	{
+		Map<Integer, Integer> ids = new HashMap<>();
+		for (Item item : bank.getItems())
+		{
+			if (item.getId() >= 0 && isPlaceholder(item.getId()))
+			{
+				ids.put(itemManager.canonicalize(item.getId()), item.getId());
+			}
+		}
+		placeholderIds = ids;
+		return ids.keySet();
 	}
 
 	private static long today()
@@ -723,6 +777,24 @@ public class CodexBankStewardPlugin extends Plugin
 		going.addAll(reckoning.getDust());
 		going.addAll(reckoning.getOutclassed());
 		plan = ClearOut.plan(going, alch, itemManager.getItemPrice(ItemID.NATURERUNE));
+		// Potions already on the list are better sold than decanted.
+		Map<Integer, Long> keeping = new HashMap<>(bank);
+		for (Advice a : going)
+		{
+			keeping.remove(a.getItemId());
+		}
+		decants = Tidy.decants(keeping, names::get, id -> drinkable.getOrDefault(id, false));
+		// Until this login's quest progress is read, every quest looks unfinished; the list in hand stands.
+		for (int id : memory.getPlaceholders().keySet())
+		{
+			describe(id);
+		}
+		if (progressRead)
+		{
+			oldPlaceholders = Placeholders.old(catalog, memory, held, done, plans, rules, today());
+		}
+		savingsGoal = ironman || savingsJson == null ? null
+			: SavingsGoal.read(gson, savingsJson, owned, itemManager::getItemPrice, plan.totalGain());
 		List<Integer> cleared = session == null ? null : ClearOut.cleared(session, bank, held);
 		if (session != null && !session.isAnnounced() && heldSeen && client.getGameState() == GameState.LOGGED_IN
 			&& ClearOut.finished(session, cleared, ClearOut.leftOff(session, reckoning, cleared)))
@@ -797,6 +869,8 @@ public class CodexBankStewardPlugin extends Plugin
 			names.put(itemId, item.getName());
 			tradeable.put(itemId, item.isTradeable());
 			alchPrice.put(itemId, item.getHaPrice());
+			String[] actions = item.getInventoryActions();
+			drinkable.put(itemId, actions != null && Arrays.asList(actions).contains("Drink"));
 		}
 	}
 
@@ -918,6 +992,27 @@ public class CodexBankStewardPlugin extends Plugin
 		return key.toString();
 	}
 
+	/** What the panel shows of tidying and the savings goal, so an unchanged one is not drawn again. */
+	private static String extrasKey(List<Placeholders.Line> placeholders, List<Integer> kept, List<Tidy.Decant> decants, SavingsGoal goal)
+	{
+		StringBuilder key = new StringBuilder();
+		for (Placeholders.Line l : placeholders)
+		{
+			key.append(l.getItemId()).append(l.getWhy().ordinal()).append(':').append(l.getDays()).append(',');
+		}
+		key.append(kept).append(';');
+		for (Tidy.Decant d : decants)
+		{
+			key.append(d.getName()).append(':').append(d.getHeld()).append(',');
+		}
+		if (goal != null)
+		{
+			key.append(';').append(goal.getName()).append(':').append(goal.getCost()).append(':').append(goal.getCoins())
+				.append(':').append(goal.getGain());
+		}
+		return key.toString();
+	}
+
 	/** Hands the panel and the bank marks the latest reckoning; it is immutable, so Swing may keep it. */
 	private void publish()
 	{
@@ -940,6 +1035,31 @@ public class CodexBankStewardPlugin extends Plugin
 			}
 		}
 		marks.setMarks(marked);
+		Set<Integer> releasable = new HashSet<>();
+		List<Placeholders.Line> shownPlaceholders = shown == null ? Collections.emptyList() : oldPlaceholders;
+		for (Placeholders.Line l : shownPlaceholders)
+		{
+			Integer own = placeholderIds.get(l.getItemId());
+			if (own != null)
+			{
+				releasable.add(own);
+			}
+		}
+		marks.setPlaceholders(releasable);
+		List<Integer> keptPlaceholders = new ArrayList<>();
+		if (shown != null && memory != null)
+		{
+			for (int id : memory.getPlaceholders().keySet())
+			{
+				if (memory.isKept(id))
+				{
+					keptPlaceholders.add(id);
+				}
+			}
+			Collections.sort(keptPlaceholders);
+		}
+		List<Tidy.Decant> shownDecants = shown == null ? Collections.emptyList() : decants;
+		SavingsGoal shownGoal = shown == null ? null : savingsGoal;
 		boolean loggedIn = client.getGameState() == GameState.LOGGED_IN;
 		Player player = client.getLocalPlayer();
 		String name = loggedIn && player != null ? player.getName() : null;
@@ -954,7 +1074,7 @@ public class CodexBankStewardPlugin extends Plugin
 		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + state + "|" + name + "|" + alch
 			+ "|" + ironman + "|" + toGetKey(shownToGet)
 			+ "|" + (shownPlan == null ? 0 : shownPlan.totalGain()) + "|" + (session == null ? -1 : session.getStarted() + ":" + session.getItems().size())
-			+ "|" + cleared;
+			+ "|" + cleared + "|" + extrasKey(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal) + "|" + releasable;
 		if (key.equals(lastPublished))
 		{
 			return;
@@ -965,7 +1085,8 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			StewardPanel.Clearing clearing = new StewardPanel.Clearing(shownPlan, session, cleared);
 			boolean iron = ironman;
-			SwingUtilities.invokeLater(() -> target.update(shown, clearing, shownToGet, shownNames, name, state, alch, iron));
+			StewardPanel.Extras extras = new StewardPanel.Extras(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal);
+			SwingUtilities.invokeLater(() -> target.update(shown, clearing, shownToGet, shownNames, name, state, alch, iron, extras));
 		}
 	}
 }

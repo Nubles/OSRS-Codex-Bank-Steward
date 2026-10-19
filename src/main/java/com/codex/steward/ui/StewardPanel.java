@@ -3,8 +3,11 @@ package com.codex.steward.ui;
 import com.codex.steward.core.Advice;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
+import com.codex.steward.core.Placeholders;
 import com.codex.steward.core.Reckoning;
+import com.codex.steward.core.SavingsGoal;
 import com.codex.steward.core.Shortfall;
+import com.codex.steward.core.Tidy;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Dimension;
@@ -75,6 +78,37 @@ public class StewardPanel extends PluginPanel
 		}
 	}
 
+	/** Slots to win back without selling, and the savings goal the list moves. */
+	public static final class Extras
+	{
+		static final Extras NONE = new Extras(null, null, null, null);
+
+		final List<Placeholders.Line> placeholders;
+		final List<Integer> keptPlaceholders;
+		final List<Tidy.Decant> decants;
+		final SavingsGoal goal;
+
+		/**
+		 * @param placeholders empty placeholders worth releasing
+		 * @param keptPlaceholders empty placeholders the player chose to keep
+		 * @param decants potions decanting would win slots back from
+		 * @param goal Codex Gear Roadmap's savings goal, or null
+		 */
+		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal)
+		{
+			this.placeholders = placeholders == null ? Collections.emptyList() : placeholders;
+			this.keptPlaceholders = keptPlaceholders == null ? Collections.emptyList() : keptPlaceholders;
+			this.decants = decants == null ? Collections.emptyList() : decants;
+			this.goal = goal;
+		}
+
+		/** Slots tidying wins back. */
+		int slots()
+		{
+			return placeholders.size() + Tidy.freed(decants);
+		}
+	}
+
 	private final ItemIcons icons;
 	private final Actions actions;
 	private final Crest crest = new Crest();
@@ -92,6 +126,7 @@ public class StewardPanel extends PluginPanel
 	private boolean alch;
 	private List<Shortfall.Goal> toGet = Collections.emptyList();
 	private boolean iron;
+	private Extras extras = Extras.NONE;
 
 	public StewardPanel(ItemIcons icons, Actions actions)
 	{
@@ -151,6 +186,14 @@ public class StewardPanel extends PluginPanel
 	public void update(Reckoning reckoning, Clearing clearing, List<Shortfall.Goal> toGet, Map<Integer, String> names, String player,
 		State state, boolean alch, boolean iron)
 	{
+		update(reckoning, clearing, toGet, names, player, state, alch, iron, Extras.NONE);
+	}
+
+	/** @param extras slots to win back by tidying, and the savings goal the list moves */
+	public void update(Reckoning reckoning, Clearing clearing, List<Shortfall.Goal> toGet, Map<Integer, String> names, String player,
+		State state, boolean alch, boolean iron, Extras extras)
+	{
+		this.extras = extras == null ? Extras.NONE : extras;
 		this.toGet = toGet == null ? Collections.emptyList() : toGet;
 		this.iron = iron;
 		this.reckoning = reckoning;
@@ -230,6 +273,10 @@ public class StewardPanel extends PluginPanel
 		}
 		else
 		{
+			if (extras.goal != null && extras.goal.isWorthShowing())
+			{
+				stack.add(ClearOutCard.goal(extras.goal));
+			}
 			if (clearing.plan != null && !clearing.plan.isEmpty())
 			{
 				stack.add(ClearOutCard.plan(clearing.plan, actions == null ? null : actions::startClearOut));
@@ -244,6 +291,10 @@ public class StewardPanel extends PluginPanel
 			stack.add(new SectionHeader("Outclassed tools", Format.coins(value(outclassed))));
 			stack.add(rows(outclassed, true));
 			more(stack, outclassed);
+		}
+		if (clearing.session == null)
+		{
+			tidy(stack);
 		}
 		if (!spared.isEmpty())
 		{
@@ -263,6 +314,73 @@ public class StewardPanel extends PluginPanel
 		}
 		stack.add(Ui.wrapped("Click an item to keep it off the list. Nothing is ever sold or dropped for you.", Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
 		replace(clear, stack);
+	}
+
+	/** Slots won back without selling: potions to decant and empty placeholders to release. */
+	private void tidy(StackPanel stack)
+	{
+		if (extras.decants.isEmpty() && extras.placeholders.isEmpty())
+		{
+			return;
+		}
+		int slots = extras.slots();
+		stack.add(new SectionHeader("Tidy up", slots == 1 ? "1 slot" : slots + " slots"));
+		JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
+		rows.setOpaque(false);
+		int shown = 0;
+		for (Tidy.Decant d : extras.decants)
+		{
+			if (shown++ >= ROWS)
+			{
+				break;
+			}
+			Advice a = new Advice(d.getIcon(), 0, 0, true, Advice.Verdict.DUST, null, 0);
+			String note = d.getDoses() + " doses in " + d.getSlots() + " slots";
+			String after = d.getFull() + " x (4)" + (d.getLeftover() > 0 ? " + (" + d.getLeftover() + ")" : "");
+			AdviceRow row = new AdviceRow(a, d.getName(), note, null, icons, null, null, alch)
+				.accent(Theme.TEAL).amount(slotCount(d.getFreed())).route("decant", Theme.TEAL);
+			row.setToolTipText("<html>" + Ui.escape(d.getName()) + ": " + d.getDoses() + " doses in " + d.getSlots()
+				+ " slots<br>Decanted: " + after + ", " + (d.getSlotsAfter() == 1 ? "1 slot" : d.getSlotsAfter() + " slots") + "</html>");
+			rows.add(row);
+		}
+		for (Placeholders.Line l : extras.placeholders)
+		{
+			if (shown++ >= ROWS)
+			{
+				break;
+			}
+			boolean done = l.getWhy() == Placeholders.Why.DONE;
+			Advice a = new Advice(l.getItemId(), 0, 0, true, done ? Advice.Verdict.SPENT : Advice.Verdict.DUST, l.getTasks(), l.getDays());
+			String note = done ? (l.getTasks().isEmpty() ? "Its quests are done" : l.getTasks().get(0))
+				: "Empty " + (l.isSinceWatching() && l.getDays() > 1 ? l.getDays() + "+ days" : Format.days(l.getDays()));
+			String more = done && l.getTasks().size() > 1 ? "+" + (l.getTasks().size() - 1) : null;
+			String action = actions == null ? null : "Keep it";
+			Runnable run = actions == null ? null : () -> actions.keep(l.getItemId(), true);
+			AdviceRow row = new AdviceRow(a, name(l.getItemId()), note, more, icons, action, run, alch)
+				.ghost().amount("1 slot").route("release", Theme.TEXT_MUTED);
+			rows.add(row);
+		}
+		stack.add(rows);
+		int total = extras.decants.size() + extras.placeholders.size();
+		StringBuilder how = new StringBuilder();
+		if (total > ROWS)
+		{
+			how.append("And ").append(total - ROWS).append(" more. ");
+		}
+		if (!extras.decants.isEmpty())
+		{
+			how.append("Bob Barter at the Grand Exchange decants potions into 4 doses. ");
+		}
+		if (!extras.placeholders.isEmpty())
+		{
+			how.append("Release a placeholder from its menu in the bank; the faded ones are marked there.");
+		}
+		stack.add(Ui.wrapped(how.toString().trim(), Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
+	}
+
+	private static String slotCount(int n)
+	{
+		return n == 1 ? "1 slot" : n + " slots";
 	}
 
 	/** The done-with and dusty lists, as the Steward sees them before a clear-out. */
@@ -521,14 +639,28 @@ public class StewardPanel extends PluginPanel
 			return;
 		}
 		List<Advice> list = reckoning.getKept();
-		if (list.isEmpty())
+		if (list.isEmpty() && extras.keptPlaceholders.isEmpty())
 		{
 			stack.add(note("Nothing kept aside", "Click anything on the Clear out page to keep it. Kept items stay off the list until you let them go."));
 		}
-		else
+		else if (!list.isEmpty())
 		{
 			stack.add(new SectionHeader("Kept aside", count(list.size())));
 			stack.add(rows(list, true));
+		}
+		if (!extras.keptPlaceholders.isEmpty())
+		{
+			stack.add(new SectionHeader("Kept placeholders", slotCount(extras.keptPlaceholders.size())));
+			JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
+			rows.setOpaque(false);
+			for (int i = 0; i < extras.keptPlaceholders.size() && i < ROWS; i++)
+			{
+				int id = extras.keptPlaceholders.get(i);
+				Advice a = new Advice(id, 0, 0, true, Advice.Verdict.KEPT, null, 0);
+				rows.add(new AdviceRow(a, name(id), "Empty placeholder", null, icons, actions == null ? null : "Let it go",
+					actions == null ? null : () -> actions.keep(id, false), alch).ghost().amount("1 slot"));
+			}
+			stack.add(rows);
 		}
 		replace(kept, stack);
 	}

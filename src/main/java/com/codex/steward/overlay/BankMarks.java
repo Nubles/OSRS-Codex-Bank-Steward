@@ -7,10 +7,12 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.geom.Ellipse2D;
+import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 import net.runelite.api.widgets.WidgetItem;
 import net.runelite.client.ui.overlay.WidgetItemOverlay;
 
@@ -23,6 +25,8 @@ public class BankMarks extends WidgetItemOverlay
 {
 	private volatile Map<Integer, Advice.Verdict> marks = Collections.emptyMap();
 	private volatile boolean enabled = true;
+	/** Empty placeholders worth releasing, by the placeholder's own item id as the bank shows it. */
+	private volatile Set<Integer> placeholders = Collections.emptySet();
 
 	public BankMarks()
 	{
@@ -32,6 +36,11 @@ public class BankMarks extends WidgetItemOverlay
 	public void setMarks(Map<Integer, Advice.Verdict> marks)
 	{
 		this.marks = marks;
+	}
+
+	public void setPlaceholders(Set<Integer> placeholders)
+	{
+		this.placeholders = placeholders;
 	}
 
 	public void setEnabled(boolean enabled)
@@ -44,6 +53,11 @@ public class BankMarks extends WidgetItemOverlay
 	{
 		if (!enabled)
 		{
+			return;
+		}
+		if (placeholders.contains(itemId))
+		{
+			releaseMark(g, item.getCanvasBounds());
 			return;
 		}
 		Advice.Verdict verdict = marks.get(itemId);
@@ -84,5 +98,24 @@ public class BankMarks extends WidgetItemOverlay
 			g.setStroke(new BasicStroke(1.4f));
 			g.draw(ring);
 		}
+	}
+
+	/** A dashed ash rim and a small cross: an empty placeholder that can be released. */
+	private static void releaseMark(Graphics2D g, Rectangle r)
+	{
+		Theme.smooth(g);
+		g.setColor(Theme.alpha(Theme.TEXT_MUTED, 110));
+		g.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 1f, new float[]{3f, 3f}, 0f));
+		g.draw(new RoundRectangle2D.Float(r.x + 0.5f, r.y + 0.5f, r.width - 1, r.height - 1, 6, 6));
+		float cx = r.x + r.width - 5.5f;
+		float cy = r.y + r.height - 5.5f;
+		g.setStroke(new BasicStroke(3.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.setColor(Theme.INK_DEEP);
+		g.draw(new Line2D.Float(cx - 3, cy - 3, cx + 3, cy + 3));
+		g.draw(new Line2D.Float(cx - 3, cy + 3, cx + 3, cy - 3));
+		g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.setColor(Theme.TEXT_MUTED);
+		g.draw(new Line2D.Float(cx - 3, cy - 3, cx + 3, cy + 3));
+		g.draw(new Line2D.Float(cx - 3, cy + 3, cx + 3, cy - 3));
 	}
 }

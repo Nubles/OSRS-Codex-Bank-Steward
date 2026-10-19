@@ -23,6 +23,8 @@ public final class Memory
 	private Map<Integer, Long> bank = new HashMap<>();
 	private Map<Integer, Long> moved = new HashMap<>();
 	private Set<Integer> keep = new HashSet<>();
+	/** Empty placeholders in the bank, by the item they hold a slot for, with the day each was first seen empty. */
+	private Map<Integer, Long> placeholders = new HashMap<>();
 	/** A clear-out under way, or null. */
 	private Session session;
 	/** Mining and Woodcutting levels as last read, so tools are judged while logged out; 0 until read. */
@@ -143,6 +145,10 @@ public final class Memory
 		{
 			keep = new HashSet<>();
 		}
+		if (placeholders == null)
+		{
+			placeholders = new HashMap<>();
+		}
 		if (session != null && session.items == null)
 		{
 			session = null;
@@ -205,6 +211,33 @@ public final class Memory
 			changed = true;
 		}
 		return changed;
+	}
+
+	/**
+	 * Records the bank's empty placeholders. A placeholder keeps the day it was first seen empty
+	 * until it is filled or released; one seen again later starts afresh.
+	 *
+	 * @param items the items the placeholders hold a slot for
+	 * @return true when anything changed
+	 */
+	public boolean observePlaceholders(Set<Integer> items, long today)
+	{
+		boolean changed = placeholders.keySet().retainAll(items);
+		for (Integer id : items)
+		{
+			if (!placeholders.containsKey(id))
+			{
+				placeholders.put(id, today);
+				changed = true;
+			}
+		}
+		return changed;
+	}
+
+	/** The bank's empty placeholders, by item, with the day each was first seen empty. */
+	public Map<Integer, Long> getPlaceholders()
+	{
+		return Collections.unmodifiableMap(placeholders);
 	}
 
 	/** Marks items carried or worn as in use today. */

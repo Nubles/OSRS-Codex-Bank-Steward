@@ -1,6 +1,7 @@
 package com.codex.steward.ui;
 
 import com.codex.steward.core.ClearOut;
+import com.codex.steward.core.SavingsGoal;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -42,6 +43,36 @@ final class ClearOutCard
 			south.add(buttons(new CodexButton("Begin the clear-out", true, begin)), BorderLayout.SOUTH);
 		}
 		card.add(south, BorderLayout.SOUTH);
+		return card;
+	}
+
+	/**
+	 * The upgrade Codex Gear Roadmap is saving for, and how far selling the list takes it: a bar
+	 * with the coins in gold and what the list adds in teal.
+	 */
+	static Card goal(SavingsGoal goal)
+	{
+		Card card = new Card(new BorderLayout(0, 6));
+		card.accent(Theme.TEAL);
+		JPanel head = new JPanel(new BorderLayout(6, 0));
+		head.setOpaque(false);
+		head.add(Ui.label("Toward your goal", Theme.small(), Theme.TEXT_FAINT), BorderLayout.WEST);
+		head.add(Ui.label(Format.coins(goal.getCost()), Theme.body(), Theme.GOLD), BorderLayout.EAST);
+		JPanel top = new JPanel(new BorderLayout(0, 2));
+		top.setOpaque(false);
+		top.add(head, BorderLayout.NORTH);
+		JComponent name = Ui.label(goal.getName(), Theme.title(), Theme.GOLD_BRIGHT);
+		name.setToolTipText(goal.getName() + ", the savings goal in Codex Gear Roadmap");
+		top.add(name, BorderLayout.SOUTH);
+		card.add(top, BorderLayout.NORTH);
+		card.add(new SplitBar(goal.coinsShare(), goal.withListShare()), BorderLayout.CENTER);
+		int before = (int) Math.floor(goal.coinsShare() * 100);
+		int after = (int) Math.floor(goal.withListShare() * 100);
+		String text = goal.listBuysIt()
+			? "Your coins cover " + before + "%. Selling this list covers the rest."
+			: "Your coins cover " + before + "%. Selling this list takes you to " + after + "%, "
+				+ Format.coins(goal.shortAfterList()) + " short.";
+		card.add(Ui.wrapped(text, Theme.small(), Theme.TEXT_MUTED, StewardPanel.WIDTH - 30), BorderLayout.SOUTH);
 		return card;
 	}
 
@@ -154,6 +185,50 @@ final class ClearOutCard
 				int cx = 14 + fm.stringWidth(line[0]) + 6;
 				g.drawString(Ui.clip(line[1], small, w - vw - cx - 6), cx, base);
 			}
+			g.dispose();
+		}
+	}
+
+	/** Two shares on one track: the coins held in gold, and what the list adds after them in teal. */
+	private static final class SplitBar extends JComponent
+	{
+		private final double coins;
+		private final double total;
+
+		SplitBar(double coins, double total)
+		{
+			this.coins = Math.max(0, Math.min(1, coins));
+			this.total = Math.max(this.coins, Math.min(1, total));
+			setOpaque(false);
+			setPreferredSize(new Dimension(10, 10));
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			Graphics2D g = (Graphics2D) graphics.create();
+			Theme.smooth(g);
+			int w = getWidth();
+			RoundRectangle2D track = new RoundRectangle2D.Float(0.5f, 2, w - 1, 6, 6, 6);
+			g.setColor(Theme.INK_DEEP);
+			g.fill(track);
+			g.clip(track);
+			float c = (float) ((w - 1) * coins);
+			float t = (float) ((w - 1) * total);
+			if (t > c)
+			{
+				Color end = total >= 1 ? Theme.GREEN : Theme.TEAL;
+				g.setPaint(new GradientPaint(c, 0, Theme.alpha(Theme.TEAL, 120), Math.max(c + 1, t), 0, end));
+				g.fill(new RoundRectangle2D.Float(0.5f, 2, t, 6, 6, 6));
+			}
+			if (c > 0)
+			{
+				g.setPaint(new GradientPaint(0, 0, Theme.GOLD_DIM, Math.max(1, c), 0, Theme.GOLD_BRIGHT));
+				g.fill(new RoundRectangle2D.Float(0.5f, 2, Math.max(3, c), 6, 6, 6));
+			}
+			g.setClip(null);
+			g.setColor(Theme.STROKE_SOFT);
+			g.draw(track);
 			g.dispose();
 		}
 	}
