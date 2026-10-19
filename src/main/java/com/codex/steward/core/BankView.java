@@ -128,6 +128,34 @@ public final class BankView
 		return before == null || isOurs(before) ? "" : before;
 	}
 
+	/** What an open view needs when its list changes under it. */
+	public enum Change
+	{
+		/** Nothing: the view is not open, or its list is the same. */
+		NONE,
+		/** Lay the bank out again, so what left the list leaves the bank view and what joined it shows. */
+		LAYOUT,
+		/** The list is empty now: give the player their whole bank back. */
+		CLOSE
+	}
+
+	/**
+	 * What to do when a view's list is worked out again while the bank may show it. The bank lays a
+	 * tag out only as it opens it, so without this a cleared item would linger in the view until the
+	 * bank was reopened.
+	 *
+	 * @param active the tag open in the bank now, or null
+	 * @param tag the view whose list changed
+	 */
+	public static Change change(String active, String tag, BankView before, BankView after)
+	{
+		if (tag == null || !tag.equals(active) || after.equals(before))
+		{
+			return Change.NONE;
+		}
+		return after.isEmpty() ? Change.CLOSE : Change.LAYOUT;
+	}
+
 	/**
 	 * Whether a bank item is on the list.
 	 *

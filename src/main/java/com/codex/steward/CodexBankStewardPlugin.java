@@ -75,6 +75,7 @@ import net.runelite.client.events.RuneScapeProfileChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDependency;
+import net.runelite.client.plugins.bank.BankSearch;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.banktags.BankTagsPlugin;
 import net.runelite.client.plugins.banktags.BankTagsService;
@@ -147,6 +148,9 @@ public class CodexBankStewardPlugin extends Plugin
 
 	@Inject
 	private BankTagsService bankTags;
+
+	@Inject
+	private BankSearch bankSearch;
 
 	private final BankMarks marks = new BankMarks();
 	private final Map<Integer, String> names = new HashMap<>();
@@ -1209,8 +1213,29 @@ public class CodexBankStewardPlugin extends Plugin
 		List<Integer> cleared = session == null ? Collections.emptyList()
 			: ClearOut.cleared(session, memory.getBank(), held);
 		List<Shortfall.Goal> shownToGet = shown == null ? Collections.emptyList() : toGet;
+		BankView clearBefore = clearView;
+		BankView tidyBefore = tidyView;
 		clearView = BankView.clearOut(shownPlan, session, cleared, session == null ? null : ClearOut.leftOff(session, shown, cleared));
 		tidyView = BankView.tidy(releasable, shownDecants);
+		if (bankOpen())
+		{
+			// A view open in the bank was laid out when it opened: lay it out again as its list moves,
+			// so an item deposited, sold or kept leaves it, and close it once nothing is left.
+			String active = bankTags.getActiveTag();
+			BankView.Change change = BankView.change(active, BankView.CLEAR_OUT, clearBefore, clearView);
+			if (change == BankView.Change.NONE)
+			{
+				change = BankView.change(active, BankView.TIDY, tidyBefore, tidyView);
+			}
+			if (change == BankView.Change.CLOSE)
+			{
+				closeView();
+			}
+			else if (change == BankView.Change.LAYOUT)
+			{
+				bankSearch.layoutBank();
+			}
+		}
 		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + state + "|" + name + "|" + alch
 			+ "|" + ironman + "|" + toGetKey(shownToGet)
 			+ "|" + (shownPlan == null ? 0 : shownPlan.totalGain()) + "|" + (session == null ? -1 : session.getStarted() + ":" + session.getItems().size())

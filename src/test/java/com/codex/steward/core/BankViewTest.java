@@ -119,4 +119,23 @@ public class BankViewTest
 		assertEquals("pressed from the main bank", "", BankView.tabAfterClose(null));
 		assertEquals("one view opened from the other", "", BankView.tabAfterClose(BankView.CLEAR_OUT));
 	}
+
+	@Test
+	public void anOpenViewIsLaidOutAgainAsItsListMoves()
+	{
+		Memory.Session session = new Memory.Session(100, Arrays.asList(
+			new Memory.Planned(4300, 1, ClearOut.Route.SELL, 980),
+			new Memory.Planned(4298, 1, ClearOut.Route.SELL, 1960)));
+		BankView before = BankView.clearOut(PLAN, session, Collections.emptyList(), Collections.emptyList());
+		BankView after = BankView.clearOut(PLAN, session, Collections.singletonList(4300), Collections.emptyList());
+		BankView done = BankView.clearOut(PLAN, session, Arrays.asList(4300, 4298), Collections.emptyList());
+		// Open: deposit one and the view lays out again; clear the last and the whole bank comes back.
+		assertEquals(BankView.Change.LAYOUT, BankView.change(BankView.CLEAR_OUT, BankView.CLEAR_OUT, before, after));
+		assertEquals(BankView.Change.CLOSE, BankView.change(BankView.CLEAR_OUT, BankView.CLEAR_OUT, after, done));
+		// The same list, another view open, or none: nothing is touched.
+		assertEquals(BankView.Change.NONE, BankView.change(BankView.CLEAR_OUT, BankView.CLEAR_OUT, after, after));
+		assertEquals(BankView.Change.NONE, BankView.change(BankView.TIDY, BankView.CLEAR_OUT, before, after));
+		assertEquals(BankView.Change.NONE, BankView.change(null, BankView.CLEAR_OUT, before, after));
+		assertEquals(BankView.Change.NONE, BankView.change("my-tag", BankView.CLEAR_OUT, before, done));
+	}
 }
