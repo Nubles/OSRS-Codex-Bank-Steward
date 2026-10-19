@@ -102,6 +102,20 @@ public final class BankView
 	}
 
 	/**
+	 * Whether the bank's filtered view should be closed: one of the Steward's is open now, or Bank
+	 * Tags remembers one to open on the next visit. Bank Tags forgets the open view as the bank
+	 * closes but keeps its name for the next visit, and a client that quit without warning keeps
+	 * it across a restart, so both are checked.
+	 *
+	 * @param active the tag open in the bank now, or null
+	 * @param remembered the tag Bank Tags will open on the next visit, or null or empty
+	 */
+	public static boolean shouldClose(String active, String remembered)
+	{
+		return isOurs(active) || isOurs(remembered);
+	}
+
+	/**
 	 * Whether a bank item is on the list.
 	 *
 	 * @param itemId the id as the bank holds it

@@ -100,4 +100,15 @@ public class BankViewTest
 		assertEquals(BankView.CLEAR_OUT, BankView.CLEAR_OUT.toLowerCase());
 		assertEquals(BankView.TIDY, BankView.TIDY.toLowerCase());
 	}
+
+	@Test
+	public void aViewRememberedForTheNextVisitIsClosedToo()
+	{
+		// Bank Tags clears the open tag as the bank closes, before the Steward hears of it, but
+		// keeps its name to open again next visit.
+		assertTrue(BankView.shouldClose(null, BankView.CLEAR_OUT));
+		assertTrue(BankView.shouldClose(BankView.TIDY, ""));
+		assertFalse(BankView.shouldClose("slayer", "slayer"));
+		assertFalse(BankView.shouldClose(null, null));
+	}
 }

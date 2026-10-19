@@ -281,6 +281,9 @@ public class CodexBankStewardPlugin extends Plugin
 		overlayManager.add(marks);
 		clientThread.invokeLater(() ->
 		{
+			// A client that quit without warning can leave Bank Tags set to open a Steward view on the
+			// next visit, before the Steward has filled it: the bank would open empty.
+			closeView();
 			loadProfile();
 			if (client.getGameState() == GameState.LOGGED_IN)
 			{
@@ -554,7 +557,7 @@ public class CodexBankStewardPlugin extends Plugin
 	private void closeView()
 	{
 		String remembered = configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, BankView.REMEMBERED_TAB_KEY);
-		if (BankView.isOurs(bankTags.getActiveTag()) || BankView.isOurs(remembered))
+		if (BankView.shouldClose(bankTags.getActiveTag(), remembered))
 		{
 			bankTags.closeBankTag();
 		}
