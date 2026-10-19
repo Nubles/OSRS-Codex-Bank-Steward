@@ -2,11 +2,19 @@ package com.codex.steward.core;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import com.google.gson.Gson;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import net.runelite.api.gameval.ItemID;
 import org.junit.Test;
 
 /** How kits, goals and STASH units keep items off the list. */
@@ -63,7 +71,7 @@ public class PlansReckoningTest
 
 	private static Plans kit(String name, Integer... items)
 	{
-		return new Plans(Collections.singletonList(new Plans.Kit(name, new java.util.HashSet<>(Arrays.asList(items)))), Collections.emptyList());
+		return new Plans(Collections.singletonList(new Plans.Kit(name, new HashSet<>(Arrays.asList(items)))), Collections.emptyList());
 	}
 
 	@Test
@@ -115,25 +123,29 @@ public class PlansReckoningTest
 	}
 
 	@Test
-	public void aGoalHoldsWhatItsQuestsOnlyMentionAndComesFirst()
+	public void aGoalComesFirstAndKeepsWhatItsQuestsMentionFromDust()
 	{
 		Map<Integer, Long> bank = bank(TELEPORT, 5, OLD_SHIELD, 1, HAM_ROBE, 1);
 		boolean[] done = new boolean[4];
 		Reckoning plain = reckon(bank, done, Plans.none(), new Reckoning.Rules(90, 14), 200);
 		// Without a goal the mentioned teleport holds nothing and gathers dust.
-		assertEquals(Arrays.asList("Death to the Dorgeshuun", "Dragon Slayer I"), new java.util.ArrayList<>(plain.getNeeded().keySet()));
+		assertEquals(Arrays.asList("Death to the Dorgeshuun", "Dragon Slayer I"), new ArrayList<>(plain.getNeeded().keySet()));
 		assertTrue(plain.getDust().stream().anyMatch(a -> a.getItemId() == TELEPORT));
 
 		Plans goal = new Plans(Collections.emptyList(), Arrays.asList("quest:Dragon Slayer II", "quest:Bad Data", "quest:Unknown"));
 		Reckoning r = reckon(bank, done, goal, new Reckoning.Rules(90, 14), 200);
-		List<String> order = new java.util.ArrayList<>(r.getNeeded().keySet());
-		assertEquals(Arrays.asList("Dragon Slayer I", "Dragon Slayer II", "Death to the Dorgeshuun"), order);
+		List<String> order = new ArrayList<>(r.getNeeded().keySet());
+		// Only what quests ask for is on the Needed page, goal work first.
+		assertEquals(Arrays.asList("Dragon Slayer I", "Death to the Dorgeshuun"), order);
 		assertEquals(Collections.singletonList("Dragon Slayer II"), r.goalsOf("Dragon Slayer I"));
 		assertTrue(r.goalsOf("Death to the Dorgeshuun").isEmpty());
-		Advice teleport = r.getNeeded().get("Dragon Slayer II").get(0);
+		assertEquals(Collections.singletonList(new Claim(Claim.Kind.GOAL, "Dragon Slayer II")),
+			r.getNeeded().get("Dragon Slayer I").get(0).getClaims());
+		// The teleport Dragon Slayer II mentions is kept from dust, and says why.
+		assertTrue(r.getDust().stream().noneMatch(a -> a.getItemId() == TELEPORT));
+		Advice teleport = r.getSpared().get(0);
 		assertEquals(TELEPORT, teleport.getItemId());
 		assertEquals(Collections.singletonList(new Claim(Claim.Kind.GOAL, "Dragon Slayer II")), teleport.getClaims());
-		assertTrue(r.getDust().stream().noneMatch(a -> a.getItemId() == TELEPORT));
 	}
 
 	@Test
@@ -168,5 +180,38 @@ public class PlansReckoningTest
 		assertEquals(Collections.singletonList("Quest cape"), r.goalsOf("Dragon Slayer I"));
 		assertTrue(r.getNeeded().get("Dragon Slayer II") == null);
 		assertTrue(r.getDust().stream().anyMatch(a -> a.getItemId() == TELEPORT));
+	}
+
+	@Test
+	public void pinningABigGoalDoesNotBuryTheNeededPageInStaples() throws Exception
+	{
+		Catalog real;
+		try (Reader reader = new InputStreamReader(getClass().getResourceAsStream("/com/codex/steward/steward-data.json"),
+			StandardCharsets.UTF_8))
+		{
+			real = new Catalog(new Gson().fromJson(reader, Catalog.Data.class));
+		}
+		int coins = ItemID.COINS;
+		int hammer = ItemID.HAMMER;
+		int logs = ItemID.LOGS;
+		Map<Integer, Long> bank = bank(coins, 5_000_000, hammer, 1, logs, 50);
+		Memory memory = new Memory();
+		memory.observeBank(bank, 0);
+		Plans goal = new Plans(Collections.emptyList(), Collections.singletonList("quest:Dragon Slayer II"));
+		boolean[] done = new boolean[real.getTasks().size()];
+		Reckoning without = Reckoning.of(real, memory, bank, Collections.emptySet(), done, id -> 1, id -> 1, id -> 0,
+			id -> true, new Reckoning.Rules(90, 14), Plans.none(), 200);
+		Reckoning with = Reckoning.of(real, memory, bank, Collections.emptySet(), done, id -> 1, id -> 1, id -> 0,
+			id -> true, new Reckoning.Rules(90, 14), goal, 200);
+		// The goal reorders and tags the page, but adds nothing quests only mention, such as coins.
+		assertEquals(items(without), items(with));
+		assertTrue(!items(with).contains(coins));
+	}
+
+	private static Set<Integer> items(Reckoning r)
+	{
+		Set<Integer> out = new HashSet<>();
+		r.getNeeded().values().forEach(list -> list.forEach(a -> out.add(a.getItemId())));
+		return out;
 	}
 }

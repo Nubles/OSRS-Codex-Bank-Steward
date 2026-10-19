@@ -122,6 +122,8 @@ public final class Reckoning
 
 		// Which owned item each unfinished need holds back, and for which tasks.
 		Map<Integer, Set<Integer>> holding = new HashMap<>();
+		// General goods that quests on the way to a pinned goal mention, with those goals.
+		Map<Integer, List<String>> mentioned = new HashMap<>();
 		for (Catalog.Need need : catalog.getNeeds())
 		{
 			if (isDone(done, need.getTask()))
@@ -132,10 +134,21 @@ public final class Reckoning
 			{
 				// A soft mention of a tool or supply, or a broad "any food" choice, would bury the
 				// page in food and teleports; such goods are never called spent anyway.
-				// A pinned goal holds what its quests only mention, too, short of a broad choice.
-				boolean firm = need.isFirm() || pinned.contains(need.getTask());
-				if (catalog.isGeneral(item) && (!firm || need.getItems().length > Catalog.BROAD))
+				if (catalog.isGeneral(item) && (!need.isFirm() || need.getItems().length > Catalog.BROAD))
 				{
+					// On the way to a pinned goal such a mention still keeps the item from being
+					// called dusty, without crowding the Needed page.
+					if (pinned.contains(need.getTask()) && need.getItems().length <= Catalog.BROAD)
+					{
+						for (String goal : goalsByTask.get(need.getTask()))
+						{
+							List<String> list = mentioned.computeIfAbsent(item, k -> new ArrayList<>());
+							if (!list.contains(goal))
+							{
+								list.add(goal);
+							}
+						}
+					}
 					continue;
 				}
 				if (held.contains(item) || bank.getOrDefault(item, 0L) > 0)
@@ -226,9 +239,14 @@ public final class Reckoning
 			{
 				continue;
 			}
-			if (!kits.isEmpty())
+			List<Claim> keeping = new ArrayList<>(kits);
+			for (String goal : mentioned.getOrDefault(id, Collections.emptyList()))
 			{
-				spared.add(new Advice(id, qty, each, canSell, Advice.Verdict.SPARED, null, untouched).prices(ge, alch).claims(kits));
+				keeping.add(new Claim(Claim.Kind.GOAL, goal));
+			}
+			if (!keeping.isEmpty())
+			{
+				spared.add(new Advice(id, qty, each, canSell, Advice.Verdict.SPARED, null, untouched).prices(ge, alch).claims(keeping));
 				continue;
 			}
 			// STASH gear can still be dusty: it may be worth a lot, and the row says what it is for.
