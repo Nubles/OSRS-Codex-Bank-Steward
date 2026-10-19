@@ -24,6 +24,8 @@ public final class BankView
 	public static final String TIDY = "steward-tidy";
 
 	public static final BankView EMPTY = new BankView(Collections.emptySet());
+	/** The key under which Bank Tags remembers the tab open when the bank closed, to open it again next visit. */
+	public static final String REMEMBERED_TAB_KEY = "tab";
 
 	/** Why the bank could not be shown filtered, if it could not. */
 	public enum Refusal
@@ -45,23 +47,25 @@ public final class BankView
 
 	/**
 	 * The clear-out as the bank should show it. While a clear-out is under way it is the items the
-	 * clear-out set out to clear that are not gone yet, since the list itself moves as items go;
-	 * before one begins it is the whole plan.
+	 * clear-out set out to clear that are not gone yet, nor left off it since (kept, or needed
+	 * again), since the list itself moves as items go; before one begins it is the whole plan.
 	 *
 	 * @param plan the clear-out plan, or null before there is one
 	 * @param session the clear-out under way, or null
 	 * @param cleared items of the session already gone
+	 * @param leftOff items of the session no longer to clear
 	 */
-	public static BankView clearOut(ClearOut plan, Memory.Session session, Collection<Integer> cleared)
+	public static BankView clearOut(ClearOut plan, Memory.Session session, Collection<Integer> cleared, Collection<Integer> leftOff)
 	{
 		Set<Integer> ids = new HashSet<>();
 		if (session != null)
 		{
 			for (Memory.Planned p : session.getItems())
 			{
-				if (cleared == null || !cleared.contains(p.getItemId()))
+				int id = p.getItemId();
+				if ((cleared == null || !cleared.contains(id)) && (leftOff == null || !leftOff.contains(id)))
 				{
-					ids.add(p.getItemId());
+					ids.add(id);
 				}
 			}
 		}
@@ -89,6 +93,12 @@ public final class BankView
 			ids.addAll(d.getHeld().keySet());
 		}
 		return ids.isEmpty() ? EMPTY : new BankView(ids);
+	}
+
+	/** Whether a bank tag is one of the Steward's views. */
+	public static boolean isOurs(String tag)
+	{
+		return CLEAR_OUT.equals(tag) || TIDY.equals(tag);
 	}
 
 	/**

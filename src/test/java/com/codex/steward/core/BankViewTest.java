@@ -22,7 +22,7 @@ public class BankViewTest
 	@Test
 	public void beforeAClearOutTheWholePlanShows()
 	{
-		BankView view = BankView.clearOut(PLAN, null, null);
+		BankView view = BankView.clearOut(PLAN, null, null, null);
 		assertEquals(3, view.size());
 		assertTrue(view.contains(4300, 4300));
 		assertFalse(view.contains(385, 385));
@@ -35,17 +35,29 @@ public class BankViewTest
 			new Memory.Planned(4300, 1, ClearOut.Route.SELL, 980),
 			new Memory.Planned(4298, 1, ClearOut.Route.SELL, 1960)));
 		// The plan has moved on (Steel platebody joined it) but the clear-out set out with two items, one gone.
-		BankView view = BankView.clearOut(PLAN, session, Collections.singletonList(4300));
+		BankView view = BankView.clearOut(PLAN, session, Collections.singletonList(4300), Collections.emptyList());
 		assertEquals(1, view.size());
 		assertTrue(view.contains(4298, 4298));
 		assertFalse("cleared already", view.contains(4300, 4300));
 		assertFalse("not part of the clear-out under way", view.contains(1119, 1119));
+		// Kept since the clear-out began: it stays in the bank, so it is not shown as one to take.
+		assertTrue(BankView.clearOut(PLAN, session, Collections.singletonList(4300), Collections.singletonList(4298)).isEmpty());
+	}
+
+	@Test
+	public void onlyTheStewardsOwnViewsAreClosed()
+	{
+		assertTrue(BankView.isOurs(BankView.CLEAR_OUT));
+		assertTrue(BankView.isOurs(BankView.TIDY));
+		assertFalse("the player's own tab stays remembered", BankView.isOurs("vorkath"));
+		assertFalse(BankView.isOurs(null));
+		assertFalse(BankView.isOurs(""));
 	}
 
 	@Test
 	public void aPlaceholderOrNotedFormMatchesThroughItsItem()
 	{
-		BankView view = BankView.clearOut(PLAN, null, null);
+		BankView view = BankView.clearOut(PLAN, null, null, null);
 		// The bank shows a placeholder by its own id; the Steward keeps the item's.
 		assertTrue(view.contains(14512, 4300));
 	}
@@ -72,10 +84,10 @@ public class BankViewTest
 	@Test
 	public void nothingToShowIsSaidBeforeTheBankIsAskedFor()
 	{
-		assertEquals(BankView.Refusal.NOTHING, BankView.clearOut(null, null, null).refusal(true, true));
-		assertEquals(BankView.Refusal.TAGS_OFF, BankView.clearOut(PLAN, null, null).refusal(true, false));
-		assertEquals(BankView.Refusal.BANK_CLOSED, BankView.clearOut(PLAN, null, null).refusal(false, true));
-		assertNull(BankView.clearOut(PLAN, null, null).refusal(true, true));
+		assertEquals(BankView.Refusal.NOTHING, BankView.clearOut(null, null, null, null).refusal(true, true));
+		assertEquals(BankView.Refusal.TAGS_OFF, BankView.clearOut(PLAN, null, null, null).refusal(true, false));
+		assertEquals(BankView.Refusal.BANK_CLOSED, BankView.clearOut(PLAN, null, null, null).refusal(false, true));
+		assertNull(BankView.clearOut(PLAN, null, null, null).refusal(true, true));
 		assertTrue(BankView.explain(BankView.Refusal.BANK_CLOSED, BankView.CLEAR_OUT).contains("tag:steward"));
 	}
 

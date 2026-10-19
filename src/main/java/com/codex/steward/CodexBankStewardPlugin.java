@@ -367,6 +367,8 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			try
 			{
+				// The next start would open the bank on a view the Steward has not filled yet.
+				closeView();
 				boolean saved = save();
 				if (writeSnapshot() || saved)
 				{
@@ -544,11 +546,15 @@ public class CodexBankStewardPlugin extends Plugin
 		}
 	}
 
-	/** Closes the bank's filtered view if it is one of the Steward's. Client thread only. */
+	/**
+	 * Closes the bank's filtered view if it is one of the Steward's, open now or remembered by Bank
+	 * Tags for the next visit. Bank Tags forgets the open view as the bank closes, before this hears
+	 * of it, but remembers its name for the next visit, so both are checked. Client thread only.
+	 */
 	private void closeView()
 	{
-		String active = bankTags.getActiveTag();
-		if (BankView.CLEAR_OUT.equals(active) || BankView.TIDY.equals(active))
+		String remembered = configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, BankView.REMEMBERED_TAB_KEY);
+		if (BankView.isOurs(bankTags.getActiveTag()) || BankView.isOurs(remembered))
 		{
 			bankTags.closeBankTag();
 		}
@@ -1182,7 +1188,7 @@ public class CodexBankStewardPlugin extends Plugin
 		List<Integer> cleared = session == null ? Collections.emptyList()
 			: ClearOut.cleared(session, memory.getBank(), held);
 		List<Shortfall.Goal> shownToGet = shown == null ? Collections.emptyList() : toGet;
-		clearView = BankView.clearOut(shownPlan, session, cleared);
+		clearView = BankView.clearOut(shownPlan, session, cleared, session == null ? null : ClearOut.leftOff(session, shown, cleared));
 		tidyView = BankView.tidy(releasable, shownDecants);
 		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + state + "|" + name + "|" + alch
 			+ "|" + ironman + "|" + toGetKey(shownToGet)
