@@ -72,7 +72,7 @@ public interface CodexBankStewardConfig extends Config
 	@ConfigItem(
 		keyName = "bankMarks",
 		name = "Mark items in the bank",
-		description = "Mark the Steward's list on the items in your bank: a gold diamond for done with, a ring for dusty",
+		description = "Mark the Steward's list on the items in your bank: a gold diamond for done with, a ring for dusty, a dashed rim and a cross on placeholders you can release",
 		position = 3
 	)
 	default boolean bankMarks()
@@ -94,7 +94,7 @@ public interface CodexBankStewardConfig extends Config
 	@ConfigItem(
 		keyName = "codexPlans",
 		name = "Keep kit and goal items",
-		description = "Never list what a Codex Quartermaster kit takes or what a goal pinned in Codex Navigator needs, and say which kit or goal keeps it. Only reads what those plugins save; it does nothing when they are not installed",
+		description = "Never list what a Codex Quartermaster kit takes or what a goal pinned in Codex Navigator needs, and say which kit or goal keeps it. Also shows how far the clear-out takes a Codex Gear Roadmap savings goal. Only reads what those plugins save; it does nothing when they are not installed",
 		position = 5
 	)
 	default boolean codexPlans()
