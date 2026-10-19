@@ -18,6 +18,7 @@ import com.codex.steward.core.Tidy;
 import com.codex.steward.overlay.BankMarks;
 import com.codex.steward.ui.Format;
 import com.codex.steward.ui.ItemIcons;
+import com.codex.steward.ui.LoadingIcons;
 import com.codex.steward.ui.Sigil;
 import com.codex.steward.ui.StewardPanel;
 import com.google.gson.Gson;
@@ -84,7 +85,6 @@ import net.runelite.client.plugins.banktags.TagManager;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.util.AsyncBufferedImage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -245,12 +245,7 @@ public class CodexBankStewardPlugin extends Plugin
 			quests.put(quest.name(), quest);
 		}
 		done = new boolean[catalog.getTasks().size()];
-		ItemIcons icons = (itemId, onLoaded) ->
-		{
-			AsyncBufferedImage image = itemManager.getImage(itemId);
-			image.onLoaded(onLoaded);
-			return image;
-		};
+		ItemIcons icons = new LoadingIcons(itemManager::getImage);
 		panel = new StewardPanel(icons, new StewardPanel.Actions()
 		{
 			@Override
