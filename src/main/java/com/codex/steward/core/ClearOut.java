@@ -188,10 +188,11 @@ public final class ClearOut
 		return off;
 	}
 
-	/** On the list to clear: done with or dusty. */
-	static boolean listed(Advice a)
+	/** On the list to clear: done with, dusty or outclassed. */
+	public static boolean listed(Advice a)
 	{
-		return a.getVerdict() == Advice.Verdict.SPENT || a.getVerdict() == Advice.Verdict.DUST;
+		return a.getVerdict() == Advice.Verdict.SPENT || a.getVerdict() == Advice.Verdict.DUST
+			|| a.getVerdict() == Advice.Verdict.OUTCLASSED;
 	}
 
 	/** The clear-out has nothing left to do: every item is gone or left off, and something went. */

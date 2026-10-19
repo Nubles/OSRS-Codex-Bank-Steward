@@ -4,6 +4,7 @@ import com.codex.steward.core.Advice;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
 import com.codex.steward.core.Reckoning;
+import com.codex.steward.core.Shortfall;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Dimension;
@@ -89,6 +90,8 @@ public class StewardPanel extends PluginPanel
 	private Map<Integer, String> names = Collections.emptyMap();
 	private State state = State.LOGGED_OUT;
 	private boolean alch;
+	private List<Shortfall.Goal> toGet = Collections.emptyList();
+	private boolean iron;
 
 	public StewardPanel(ItemIcons icons, Actions actions)
 	{
@@ -138,6 +141,18 @@ public class StewardPanel extends PluginPanel
 	 */
 	public void update(Reckoning reckoning, Clearing clearing, Map<Integer, String> names, String player, State state, boolean alch)
 	{
+		update(reckoning, clearing, Collections.emptyList(), names, player, state, alch, false);
+	}
+
+	/**
+	 * @param toGet what each pinned Navigator goal still needs that the player does not own
+	 * @param iron an iron account, which gathers rather than buys
+	 */
+	public void update(Reckoning reckoning, Clearing clearing, List<Shortfall.Goal> toGet, Map<Integer, String> names, String player,
+		State state, boolean alch, boolean iron)
+	{
+		this.toGet = toGet == null ? Collections.emptyList() : toGet;
+		this.iron = iron;
 		this.reckoning = reckoning;
 		this.clearing = clearing == null ? new Clearing(null, null, null) : clearing;
 		this.names = names;
@@ -223,6 +238,13 @@ public class StewardPanel extends PluginPanel
 		}
 
 		List<Advice> spared = reckoning.getSpared();
+		List<Advice> outclassed = reckoning.getOutclassed();
+		if (clearing.session == null && !outclassed.isEmpty())
+		{
+			stack.add(new SectionHeader("Outclassed tools", Format.coins(value(outclassed))));
+			stack.add(rows(outclassed, true));
+			more(stack, outclassed);
+		}
 		if (!spared.isEmpty())
 		{
 			stack.add(new SectionHeader("Kept for your plans", count(spared.size())));
@@ -290,7 +312,7 @@ public class StewardPanel extends PluginPanel
 				freed += p.getGain();
 				worth += p.getGain();
 			}
-			else if (now != null && now.getVerdict() != Advice.Verdict.SPENT && now.getVerdict() != Advice.Verdict.DUST)
+			else if (now != null && !ClearOut.listed(now))
 			{
 				off.add(p);
 			}
@@ -357,7 +379,7 @@ public class StewardPanel extends PluginPanel
 		{
 			note = how(route, a);
 		}
-		boolean off = !gone && current != null && current.getVerdict() != Advice.Verdict.SPENT && current.getVerdict() != Advice.Verdict.DUST;
+		boolean off = !gone && current != null && !ClearOut.listed(current);
 		AdviceRow row = new AdviceRow(a, name(p.getItemId()), note, null, icons, null, null, alch)
 			.amount(off ? "-" : route == ClearOut.Route.DROP ? "Drop" : Format.coins(p.getGain()));
 		if (route != ClearOut.Route.DROP && !off)
@@ -421,6 +443,10 @@ public class StewardPanel extends PluginPanel
 				+ (forGoals > 0 ? " Work toward your Navigator goals comes first." : ""),
 			Theme.small(), Theme.TEXT_MUTED, WIDTH - 30), BorderLayout.CENTER);
 		stack.add(head);
+		for (Shortfall.Goal goal : toGet)
+		{
+			shortfall(stack, goal);
+		}
 		for (Map.Entry<String, List<Advice>> e : byTask.entrySet())
 		{
 			long held = value(e.getValue());
@@ -434,6 +460,56 @@ public class StewardPanel extends PluginPanel
 			stack.add(rows(e.getValue(), false, e.getKey()));
 		}
 		replace(needed, stack);
+	}
+
+	/** Rows shown per goal before the rest are summed up. */
+	private static final int TO_GET_ROWS = 8;
+
+	/** What a pinned goal still needs that the player does not own, most costly first. */
+	private void shortfall(StackPanel stack, Shortfall.Goal goal)
+	{
+		List<Shortfall.Line> lines = goal.getLines();
+		stack.add(new SectionHeader("To get: " + goal.getName(), iron || goal.getCost() == 0 ? count(lines.size() + goal.getMore()) : Format.coins(goal.getCost())));
+		if (lines.isEmpty())
+		{
+			stack.add(note("You own what it needs", goal.getUntradeable() > 0
+				? "Everything you can buy is in your bank or pack. Its quests hand you the rest."
+				: "Everything its " + goal.getTasksLeft() + (goal.getTasksLeft() == 1 ? " quest or diary" : " quests and diaries") + " ask you to bring is in your bank or pack."));
+			return;
+		}
+		JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
+		rows.setOpaque(false);
+		for (int i = 0; i < lines.size() && i < TO_GET_ROWS; i++)
+		{
+			Shortfall.Line l = lines.get(i);
+			Advice a = new Advice(l.getItemId(), l.getMissing(), l.getPrice(), true, Advice.Verdict.NEEDED, l.getTasks(), 0);
+			String note = l.getHave() > 0 ? "Have " + l.getHave() + " of " + l.getNeeded()
+				: l.getChoices() > 1 ? "Or one of " + (l.getChoices() - 1) + " others" : l.getTasks().get(0);
+			String more = l.getTasks().size() > 1 && l.getHave() == 0 && l.getChoices() == 1 ? "+" + (l.getTasks().size() - 1) : null;
+			AdviceRow row = new AdviceRow(a, name(l.getItemId()), note, more, icons, null, null, false);
+			rows.add(row.amount(iron ? "Gather" : l.getCost() > 0 ? Format.coins(l.getCost()) : "-"));
+		}
+		stack.add(rows);
+		int hidden = lines.size() - Math.min(lines.size(), TO_GET_ROWS) + goal.getMore();
+		StringBuilder tail = new StringBuilder();
+		if (hidden > 0)
+		{
+			long rest = 0;
+			for (int i = TO_GET_ROWS; i < lines.size(); i++)
+			{
+				rest += lines.get(i).getCost();
+			}
+			tail.append("And ").append(hidden).append(hidden == 1 ? " more item" : " more items")
+				.append(iron || rest == 0 ? "" : ", about " + Format.coins(rest)).append(". ");
+		}
+		if (goal.getUntradeable() > 0)
+		{
+			tail.append("Quest items its quests hand you are left out.");
+		}
+		if (tail.length() > 0)
+		{
+			stack.add(Ui.wrapped(tail.toString().trim(), Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
+		}
 	}
 
 	private void rebuildKept()
@@ -492,7 +568,7 @@ public class StewardPanel extends PluginPanel
 	/** The clear-out plan's step for an item on the done-with or dusty list. */
 	private ClearOut.Step stepFor(Advice a)
 	{
-		if (clearing.plan == null || a.getVerdict() != Advice.Verdict.SPENT && a.getVerdict() != Advice.Verdict.DUST)
+		if (clearing.plan == null || !ClearOut.listed(a))
 		{
 			return null;
 		}
@@ -530,6 +606,8 @@ public class StewardPanel extends PluginPanel
 				return a.getClaims().isEmpty() ? "Untouched " + untouched(a) : "STASH gear, " + untouched(a);
 			case SPARED:
 				return a.getClaims().isEmpty() ? "Kept for a plan" : a.getClaims().get(0).shortText();
+			case OUTCLASSED:
+				return name(a.getBetter()) + " is faster";
 			case NEEDED:
 				// Listed under one quest already; name another that wants it too.
 				for (String task : tasks)

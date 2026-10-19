@@ -21,7 +21,9 @@ public final class Advice
 		 * Would be done with or dusty, but a plan keeps it: a Quartermaster kit, a Navigator goal or
 		 * a clue STASH unit.
 		 */
-		SPARED
+		SPARED,
+		/** A slower skilling tool the player owns a faster one of, and has the level to use. */
+		OUTCLASSED
 	}
 
 	private final int itemId;
@@ -34,6 +36,7 @@ public final class Advice
 	private List<Claim> claims = Collections.emptyList();
 	private long grandExchange;
 	private long highAlchemy;
+	private int better = -1;
 
 	public Advice(int itemId, long quantity, long price, boolean tradeable, Verdict verdict, List<String> tasks, long untouchedDays)
 	{
@@ -111,6 +114,18 @@ public final class Advice
 	public long getHighAlchemy()
 	{
 		return highAlchemy;
+	}
+
+	/** For OUTCLASSED, the owned tool that makes it needless; -1 otherwise. */
+	public int getBetter()
+	{
+		return better;
+	}
+
+	Advice better(int itemId)
+	{
+		better = itemId;
+		return this;
 	}
 
 	Advice prices(long grandExchange, long highAlchemy)

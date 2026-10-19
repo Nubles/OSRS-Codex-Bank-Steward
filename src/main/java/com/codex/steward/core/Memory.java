@@ -25,6 +25,9 @@ public final class Memory
 	private Set<Integer> keep = new HashSet<>();
 	/** A clear-out under way, or null. */
 	private Session session;
+	/** Mining and Woodcutting levels as last read, so tools are judged while logged out; 0 until read. */
+	private int mining;
+	private int woodcutting;
 
 	/** One item a clear-out set out to clear, as it was when the clear-out began. */
 	public static final class Planned
@@ -277,5 +280,23 @@ public final class Memory
 		{
 			keep.remove(id);
 		}
+	}
+
+	/** The levels that judge tools, as last read. */
+	public Tools.Levels getLevels()
+	{
+		return new Tools.Levels(mining, woodcutting);
+	}
+
+	/** @return whether they changed */
+	public boolean setLevels(int mining, int woodcutting)
+	{
+		if (mining <= 0 || woodcutting <= 0 || this.mining == mining && this.woodcutting == woodcutting)
+		{
+			return false;
+		}
+		this.mining = mining;
+		this.woodcutting = woodcutting;
+		return true;
 	}
 }

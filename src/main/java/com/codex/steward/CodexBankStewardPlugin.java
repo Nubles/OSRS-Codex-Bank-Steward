@@ -7,6 +7,7 @@ import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
 import com.codex.steward.core.Plans;
 import com.codex.steward.core.Reckoning;
+import com.codex.steward.core.Shortfall;
 import com.codex.steward.core.Task;
 import com.codex.steward.overlay.BankMarks;
 import com.codex.steward.ui.Format;
@@ -43,6 +44,7 @@ import net.runelite.api.ItemContainer;
 import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
+import net.runelite.api.Skill;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
@@ -142,6 +144,10 @@ public class CodexBankStewardPlugin extends Plugin
 	private Memory memory;
 	private Reckoning reckoning;
 	private ClearOut plan;
+	/** What each pinned Navigator goal still needs that the player does not own. */
+	private List<Shortfall.Goal> toGet = Collections.emptyList();
+	/** How many of each item is carried and worn. */
+	private Map<Integer, Long> heldCounts = Collections.emptyMap();
 	/** Kits and goals read from the other Codex plugins for this account. */
 	private Plans plans = Plans.none();
 	private Set<Integer> held = Collections.emptySet();
@@ -352,6 +358,7 @@ public class CodexBankStewardPlugin extends Plugin
 		ironman = false;
 		progressRead = false;
 		held = Collections.emptySet();
+		heldCounts = Collections.emptyMap();
 		heldSeen = false;
 		summaryShown = false;
 		summaryDue = false;
@@ -599,6 +606,11 @@ public class CodexBankStewardPlugin extends Plugin
 		List<Task> tasks = catalog.getTasks();
 		boolean changed = false;
 		boolean iron = client.getVarbitValue(VarbitID.IRONMAN) != 0;
+		if (memory != null && memory.setLevels(client.getRealSkillLevel(Skill.MINING), client.getRealSkillLevel(Skill.WOODCUTTING)))
+		{
+			unsaved = true;
+			changed = true;
+		}
 		if (iron != ironman)
 		{
 			ironman = iron;
@@ -628,12 +640,14 @@ public class CodexBankStewardPlugin extends Plugin
 
 	private void observeHeld()
 	{
-		Set<Integer> now = new HashSet<>();
+		Map<Integer, Long> counts = new HashMap<>();
 		for (int id : new int[]{InventoryID.INV, InventoryID.WORN})
 		{
-			now.addAll(contents(client.getItemContainer(id)).keySet());
+			contents(client.getItemContainer(id)).forEach((item, q) -> counts.merge(item, q, Long::sum));
 		}
+		Set<Integer> now = new HashSet<>(counts.keySet());
 		held = now;
+		heldCounts = counts;
 		heldSeen |= client.getItemContainer(InventoryID.INV) != null;
 		if (memory != null)
 		{
@@ -691,9 +705,23 @@ public class CodexBankStewardPlugin extends Plugin
 		IntToLongFunction byAlch = id -> alchPrice.getOrDefault(id, 0);
 		IntToLongFunction byGe = itemManager::getItemPrice;
 		reckoning = Reckoning.of(catalog, memory, bank, held, done, alch ? byAlch : byGe, byGe, byAlch,
-			id -> tradeable.getOrDefault(id, false), rules, plans, today());
+			id -> tradeable.getOrDefault(id, false), rules, plans, memory.getLevels(), today());
+		for (Advice a : reckoning.getOutclassed())
+		{
+			// The faster tool may be carried rather than banked; its name is shown with the slower.
+			describe(a.getBetter());
+		}
+		Map<Integer, Long> owned = new HashMap<>(bank);
+		heldCounts.forEach((id, q) -> owned.merge(id, q, Long::sum));
+		// Until this login's quest progress is read, every quest looks unfinished.
+		toGet = !progressRead ? Collections.emptyList() : Shortfall.of(catalog, plans, done, owned, itemManager::getItemPrice, id ->
+		{
+			describe(id);
+			return tradeable.getOrDefault(id, false);
+		});
 		List<Advice> going = new ArrayList<>(reckoning.getSpent());
 		going.addAll(reckoning.getDust());
+		going.addAll(reckoning.getOutclassed());
 		plan = ClearOut.plan(going, alch, itemManager.getItemPrice(ItemID.NATURERUNE));
 		List<Integer> cleared = session == null ? null : ClearOut.cleared(session, bank, held);
 		if (session != null && !session.isAnnounced() && heldSeen && client.getGameState() == GameState.LOGGED_IN
@@ -836,14 +864,24 @@ public class CodexBankStewardPlugin extends Plugin
 		}
 		int spent = reckoning.getSpent().size();
 		int dust = reckoning.getDust().size();
-		StringBuilder what = new StringBuilder();
+		int outclassed = reckoning.getOutclassed().size();
+		List<String> parts = new ArrayList<>();
 		if (spent > 0)
 		{
-			what.append(spent).append(spent == 1 ? " item is" : " items are").append(" done with");
+			parts.add(spent + (spent == 1 ? " item is" : " items are") + " done with");
 		}
 		if (dust > 0)
 		{
-			what.append(spent > 0 ? " and " : "").append(dust).append(dust == 1 ? " is" : " are").append(" gathering dust");
+			parts.add(dust + (parts.isEmpty() ? dust == 1 ? " item is" : " items are" : dust == 1 ? " is" : " are") + " gathering dust");
+		}
+		if (outclassed > 0)
+		{
+			parts.add(outclassed + (outclassed == 1 ? " tool is" : " tools are") + " outclassed");
+		}
+		StringBuilder what = new StringBuilder();
+		for (int i = 0; i < parts.size(); i++)
+		{
+			what.append(i == 0 ? "" : i == parts.size() - 1 ? " and " : ", ").append(parts.get(i));
 		}
 		ChatMessageBuilder line = new ChatMessageBuilder()
 			.append(ChatColorType.HIGHLIGHT).append("Codex Bank Steward: ")
@@ -856,6 +894,22 @@ public class CodexBankStewardPlugin extends Plugin
 			.type(ChatMessageType.CONSOLE)
 			.runeLiteFormattedMessage(line.build())
 			.build());
+	}
+
+	/** What the panel shows of the goals' shortfall, so an unchanged one is not drawn again. */
+	private static String toGetKey(List<Shortfall.Goal> goals)
+	{
+		StringBuilder key = new StringBuilder();
+		for (Shortfall.Goal g : goals)
+		{
+			key.append(g.getName()).append(':').append(g.getCost()).append(':').append(g.getMore()).append(':').append(g.getUntradeable());
+			for (Shortfall.Line l : g.getLines())
+			{
+				key.append(',').append(l.getItemId()).append('x').append(l.getMissing());
+			}
+			key.append(';');
+		}
+		return key.toString();
 	}
 
 	/** Hands the panel and the bank marks the latest reckoning; it is immutable, so Swing may keep it. */
@@ -874,6 +928,10 @@ public class CodexBankStewardPlugin extends Plugin
 			{
 				marked.put(a.getItemId(), Advice.Verdict.DUST);
 			}
+			for (Advice a : shown.getOutclassed())
+			{
+				marked.put(a.getItemId(), Advice.Verdict.OUTCLASSED);
+			}
 		}
 		marks.setMarks(marked);
 		boolean loggedIn = client.getGameState() == GameState.LOGGED_IN;
@@ -886,7 +944,9 @@ public class CodexBankStewardPlugin extends Plugin
 		Memory.Session session = memory == null || shown == null ? null : memory.getSession();
 		List<Integer> cleared = session == null ? Collections.emptyList()
 			: ClearOut.cleared(session, memory.getBank(), held);
+		List<Shortfall.Goal> shownToGet = shown == null ? Collections.emptyList() : toGet;
 		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + state + "|" + name + "|" + alch
+			+ "|" + ironman + "|" + toGetKey(shownToGet)
 			+ "|" + (shownPlan == null ? 0 : shownPlan.totalGain()) + "|" + (session == null ? -1 : session.getStarted() + ":" + session.getItems().size())
 			+ "|" + cleared;
 		if (key.equals(lastPublished))
@@ -898,7 +958,8 @@ public class CodexBankStewardPlugin extends Plugin
 		if (target != null)
 		{
 			StewardPanel.Clearing clearing = new StewardPanel.Clearing(shownPlan, session, cleared);
-			SwingUtilities.invokeLater(() -> target.update(shown, clearing, shownNames, name, state, alch));
+			boolean iron = ironman;
+			SwingUtilities.invokeLater(() -> target.update(shown, clearing, shownToGet, shownNames, name, state, alch, iron));
 		}
 	}
 }

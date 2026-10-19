@@ -61,6 +61,7 @@ public final class Reckoning
 	private final List<Advice> kept;
 	private final List<Advice> spared;
 	private final List<Advice> untradeableDust;
+	private final List<Advice> outclassed;
 	private final Map<String, List<Advice>> needed;
 	private final Map<String, List<String>> neededGoals;
 	private final long watchedDays;
@@ -69,8 +70,10 @@ public final class Reckoning
 	private final int tasksTotal;
 
 	private Reckoning(List<Advice> spent, List<Advice> dust, List<Advice> kept, List<Advice> spared, List<Advice> untradeableDust,
-		Map<String, List<Advice>> needed, Map<String, List<String>> neededGoals, long watchedDays, int dustDays, int tasksDone, int tasksTotal)
+		List<Advice> outclassed, Map<String, List<Advice>> needed, Map<String, List<String>> neededGoals, long watchedDays, int dustDays,
+		int tasksDone, int tasksTotal)
 	{
+		this.outclassed = outclassed;
 		this.spent = spent;
 		this.dust = dust;
 		this.kept = kept;
@@ -107,6 +110,20 @@ public final class Reckoning
 		IntToLongFunction value, IntToLongFunction grandExchange, IntToLongFunction highAlchemy, IntPredicate tradeable,
 		Rules rules, Plans plans, long today)
 	{
+		return of(catalog, memory, bank, held, done, value, grandExchange, highAlchemy, tradeable, rules, plans, Tools.Levels.UNKNOWN, today);
+	}
+
+	/**
+	 * @param levels Mining and Woodcutting levels, which say which owned tools outclass the rest;
+	 *     no tool is called outclassed while they are unknown
+	 */
+	public static Reckoning of(Catalog catalog, Memory memory, Map<Integer, Long> bank, Set<Integer> held, boolean[] done,
+		IntToLongFunction value, IntToLongFunction grandExchange, IntToLongFunction highAlchemy, IntPredicate tradeable,
+		Rules rules, Plans plans, Tools.Levels levels, long today)
+	{
+		Set<Integer> owned = new HashSet<>(bank.keySet());
+		owned.addAll(held);
+		Map<Tools.Kind, Integer> bestTools = Tools.best(owned, levels);
 		List<Task> tasks = catalog.getTasks();
 		Map<Integer, List<String>> goalsByTask = plans.goalsByTask(catalog);
 		Map<Integer, List<String>> kitsByItem = plans.kitsByItem();
@@ -164,6 +181,7 @@ public final class Reckoning
 		List<Advice> kept = new ArrayList<>();
 		List<Advice> spared = new ArrayList<>();
 		List<Advice> untradeable = new ArrayList<>();
+		List<Advice> outclassed = new ArrayList<>();
 		Map<Integer, List<Advice>> neededByTask = new HashMap<>();
 		long watched = memory.hasSeenBank() ? Math.max(0, today - memory.getSince()) : 0;
 
@@ -231,6 +249,14 @@ public final class Reckoning
 			boolean old = watched >= rules.dustDays && untouched >= rules.dustDays && !catalog.isLasting(id);
 			if (!old)
 			{
+				// A slower tool beside a faster one the player can use. Never while carried or
+				// worn, nor when a kit takes it or a clue STASH unit wants it.
+				Integer better = Tools.outclassedBy(id, bestTools);
+				if (better != null && canSell && !held.contains(id) && kits.isEmpty() && stash == null
+					&& !mentioned.containsKey(id))
+				{
+					outclassed.add(new Advice(id, qty, each, true, Advice.Verdict.OUTCLASSED, null, untouched).prices(ge, alch).better(better));
+				}
 				continue;
 			}
 			// An untradeable item nothing explains is not known to be safe to drop, so dust is only
@@ -262,6 +288,7 @@ public final class Reckoning
 		dust.sort(byValue);
 		kept.sort(byValue);
 		spared.sort(byValue);
+		outclassed.sort(byValue);
 		untradeable.sort(Comparator.comparingLong(Advice::getUntouchedDays).reversed().thenComparingInt(Advice::getItemId));
 
 		// Unfinished tasks on the way to a pinned goal first, then the rest in catalog order, each
@@ -288,7 +315,7 @@ public final class Reckoning
 		}
 		return new Reckoning(Collections.unmodifiableList(spent), Collections.unmodifiableList(dust),
 			Collections.unmodifiableList(kept), Collections.unmodifiableList(spared), Collections.unmodifiableList(untradeable),
-			Collections.unmodifiableMap(needed), Collections.unmodifiableMap(neededGoals), watched, rules.dustDays, doneCount, tasks.size());
+			Collections.unmodifiableList(outclassed), Collections.unmodifiableMap(needed), Collections.unmodifiableMap(neededGoals), watched, rules.dustDays, doneCount, tasks.size());
 	}
 
 	/** The pinned goals the tasks are on the way to, each once. */
@@ -411,10 +438,16 @@ public final class Reckoning
 		return untradeableDust;
 	}
 
+	/** Slower skilling tools a faster owned one makes needless, each with the tool that does. */
+	public List<Advice> getOutclassed()
+	{
+		return outclassed;
+	}
+
 	/** What the Steward makes of an item in the bank now, or null when it is not in the bank. */
 	public Advice adviceFor(int itemId)
 	{
-		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust))
+		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust, outclassed))
 		{
 			for (Advice a : list)
 			{
@@ -478,7 +511,7 @@ public final class Reckoning
 	public long fingerprint()
 	{
 		long h = 17;
-		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust))
+		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust, outclassed))
 		{
 			h = h * 31 + list.size();
 			for (Advice a : list)
@@ -508,6 +541,7 @@ public final class Reckoning
 		h = h * 31 + a.getGrandExchange();
 		h = h * 31 + a.getHighAlchemy();
 		h = h * 31 + a.getClaims().hashCode();
+		h = h * 31 + a.getBetter();
 		return h * 31 + a.getTasks().hashCode();
 	}
 
@@ -523,12 +557,16 @@ public final class Reckoning
 		{
 			total += a.getValue();
 		}
+		for (Advice a : outclassed)
+		{
+			total += a.getValue();
+		}
 		return total;
 	}
 
 	/** Bank slots the list would free. */
 	public int freedSlots()
 	{
-		return spent.size() + dust.size();
+		return spent.size() + dust.size() + outclassed.size();
 	}
 }
