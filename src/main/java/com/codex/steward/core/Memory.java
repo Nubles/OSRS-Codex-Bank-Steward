@@ -1,6 +1,10 @@
 package com.codex.steward.core;
 
+import com.google.gson.Gson;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -20,23 +24,187 @@ public final class Memory
 	private Map<Integer, Long> bank = new HashMap<>();
 	private Map<Integer, Long> moved = new HashMap<>();
 	private Set<Integer> keep = new HashSet<>();
+	/** Empty placeholders in the bank, by the item they hold a slot for, with the day each was first seen empty. */
+	private Map<Integer, Long> placeholders = new HashMap<>();
+	/** A clear-out under way, or null. */
+	private Session session;
+	/** Mining and Woodcutting levels as last read, so tools are judged while logged out; 0 until read. */
+	private int mining;
+	private int woodcutting;
 
-	/** Fills in anything a saved copy from an older version lacks. */
+	/** One item a clear-out set out to clear, as it was when the clear-out began. */
+	public static final class Planned
+	{
+		private int item;
+		private long qty;
+		private String route;
+		private long gain;
+
+		public Planned()
+		{
+		}
+
+		public Planned(int item, long qty, ClearOut.Route route, long gain)
+		{
+			this.item = item;
+			this.qty = qty;
+			this.route = route.name();
+			this.gain = gain;
+		}
+
+		public int getItemId()
+		{
+			return item;
+		}
+
+		public long getQuantity()
+		{
+			return qty;
+		}
+
+		public ClearOut.Route getRoute()
+		{
+			try
+			{
+				return route == null ? ClearOut.Route.DROP : ClearOut.Route.valueOf(route);
+			}
+			catch (IllegalArgumentException e)
+			{
+				return ClearOut.Route.DROP;
+			}
+		}
+
+		public long getGain()
+		{
+			return gain;
+		}
+	}
+
+	/** A clear-out the player began: when, and what it set out to clear, in order. */
+	public static final class Session
+	{
+		private long started;
+		private List<Planned> items = new ArrayList<>();
+		/** The chat has said the clear-out is done. */
+		private boolean announced;
+
+		public Session()
+		{
+		}
+
+		public Session(long started, List<Planned> items)
+		{
+			this.started = started;
+			this.items = new ArrayList<>(items);
+		}
+
+		public long getStarted()
+		{
+			return started;
+		}
+
+		public List<Planned> getItems()
+		{
+			return items == null ? Collections.emptyList() : Collections.unmodifiableList(items);
+		}
+
+		public boolean isAnnounced()
+		{
+			return announced;
+		}
+
+		public void setAnnounced(boolean announced)
+		{
+			this.announced = announced;
+		}
+
+		public Planned get(int itemId)
+		{
+			for (Planned p : getItems())
+			{
+				if (p.getItemId() == itemId)
+				{
+					return p;
+				}
+			}
+			return null;
+		}
+	}
+
+	/** The highest level a skill reaches. */
+	private static final int MAX_LEVEL = 126;
+
+	/**
+	 * Reads the memory saved for an account, or a fresh one when there is none. A damaged save
+	 * keeps all it can: a field or entry that cannot be read is lost alone.
+	 */
+	public static Memory read(Gson gson, String saved)
+	{
+		Memory read = Salvage.read(gson, saved, Memory.class);
+		return read == null ? new Memory() : read.repair();
+	}
+
+	/** Fills in anything a saved copy from an older version lacks, and drops what damage left. */
 	public Memory repair()
 	{
-		if (bank == null)
-		{
-			bank = new HashMap<>();
-		}
-		if (moved == null)
-		{
-			moved = new HashMap<>();
-		}
+		bank = counts(bank, 1);
+		// No bank slot holds more than this; a larger count is damage, held to it.
+		bank.replaceAll((id, q) -> Math.min(q, Integer.MAX_VALUE));
+		moved = counts(moved, 0);
+		placeholders = counts(placeholders, 0);
 		if (keep == null)
 		{
 			keep = new HashSet<>();
 		}
+		keep.removeIf(id -> id == null || id <= 0);
+		since = Math.max(-1, since);
+		if (session != null && session.items == null)
+		{
+			session = null;
+		}
+		if (session != null)
+		{
+			session.items.removeIf(p -> p == null || p.item <= 0 || p.qty <= 0);
+			session.items.forEach(p -> p.gain = Math.max(0, p.gain));
+		}
+		if (mining <= 0 || mining > MAX_LEVEL || woodcutting <= 0 || woodcutting > MAX_LEVEL)
+		{
+			mining = 0;
+			woodcutting = 0;
+		}
 		return this;
+	}
+
+	/** A copy of saved entries with real item ids and values of at least {@code least}. */
+	private static Map<Integer, Long> counts(Map<Integer, Long> saved, long least)
+	{
+		Map<Integer, Long> out = new HashMap<>();
+		if (saved != null)
+		{
+			saved.forEach((id, v) ->
+			{
+				if (id != null && id > 0 && v != null && v >= least)
+				{
+					out.put(id, v);
+				}
+			});
+		}
+		return out;
+	}
+
+	/**
+	 * Brings days saved more than a year past today back to today: damage, not a clock a little
+	 * off, and it would otherwise keep those items from ever gathering dust.
+	 */
+	private void settle(long today)
+	{
+		long latest = today + 366;
+		if (since > latest)
+		{
+			since = today;
+		}
+		moved.replaceAll((id, day) -> day > latest ? today : day);
+		placeholders.replaceAll((id, day) -> day > latest ? today : day);
 	}
 
 	public boolean hasSeenBank()
@@ -62,6 +230,7 @@ public final class Memory
 	 */
 	public boolean observeBank(Map<Integer, Long> now, long today)
 	{
+		settle(today);
 		if (since < 0)
 		{
 			since = today;
@@ -92,9 +261,37 @@ public final class Memory
 		return changed;
 	}
 
+	/**
+	 * Records the bank's empty placeholders. A placeholder keeps the day it was first seen empty
+	 * until it is filled or released; one seen again later starts afresh.
+	 *
+	 * @param items the items the placeholders hold a slot for
+	 * @return true when anything changed
+	 */
+	public boolean observePlaceholders(Set<Integer> items, long today)
+	{
+		boolean changed = placeholders.keySet().retainAll(items);
+		for (Integer id : items)
+		{
+			if (!placeholders.containsKey(id))
+			{
+				placeholders.put(id, today);
+				changed = true;
+			}
+		}
+		return changed;
+	}
+
+	/** The bank's empty placeholders, by item, with the day each was first seen empty. */
+	public Map<Integer, Long> getPlaceholders()
+	{
+		return Collections.unmodifiableMap(placeholders);
+	}
+
 	/** Marks items carried or worn as in use today. */
 	public boolean observeHeld(Iterable<Integer> items, long today)
 	{
+		settle(today);
 		boolean changed = false;
 		for (Integer id : items)
 		{
@@ -134,6 +331,17 @@ public final class Memory
 		moved.keySet().retainAll(bank.keySet());
 	}
 
+	/** The clear-out under way, or null. */
+	public Session getSession()
+	{
+		return session;
+	}
+
+	public void setSession(Session session)
+	{
+		this.session = session;
+	}
+
 	public boolean isKept(int id)
 	{
 		return keep.contains(id);
@@ -154,5 +362,23 @@ public final class Memory
 		{
 			keep.remove(id);
 		}
+	}
+
+	/** The levels that judge tools, as last read. */
+	public Tools.Levels getLevels()
+	{
+		return new Tools.Levels(mining, woodcutting);
+	}
+
+	/** @return whether they changed */
+	public boolean setLevels(int mining, int woodcutting)
+	{
+		if (mining <= 0 || woodcutting <= 0 || this.mining == mining && this.woodcutting == woodcutting)
+		{
+			return false;
+		}
+		this.mining = mining;
+		this.woodcutting = woodcutting;
+		return true;
 	}
 }

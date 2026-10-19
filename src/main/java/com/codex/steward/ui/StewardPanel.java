@@ -1,16 +1,26 @@
 package com.codex.steward.ui;
 
 import com.codex.steward.core.Advice;
+import com.codex.steward.core.BankView;
+import com.codex.steward.core.ClearOut;
+import com.codex.steward.core.Memory;
+import com.codex.steward.core.Placeholders;
 import com.codex.steward.core.Reckoning;
+import com.codex.steward.core.SavingsGoal;
+import com.codex.steward.core.Shortfall;
+import com.codex.steward.core.Strata;
+import com.codex.steward.core.Tidy;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.GridLayout;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Set;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -42,6 +52,90 @@ public class StewardPanel extends PluginPanel
 	public interface Actions
 	{
 		void keep(int itemId, boolean kept);
+
+		/** Begins a guided clear-out of the list as it stands. */
+		void startClearOut();
+
+		/** Ends the clear-out under way. */
+		void endClearOut();
+
+		/**
+		 * Shows the bank filtered to one of the Steward's lists.
+		 *
+		 * @param view {@link com.codex.steward.core.BankView#CLEAR_OUT} or {@link com.codex.steward.core.BankView#TIDY}
+		 */
+		default void showInBank(String view)
+		{
+		}
+
+		/**
+		 * Shows the bank filtered to one layer of the bank by age.
+		 *
+		 * @param from where the layer starts, in days untouched
+		 */
+		default void showLayer(int from)
+		{
+		}
+	}
+
+	/** The guided clear-out: the plan for the list now, and the clear-out under way, if any. */
+	public static final class Clearing
+	{
+		final ClearOut plan;
+		final Memory.Session session;
+		final Set<Integer> cleared;
+
+		/**
+		 * @param plan the plan for the list as it stands, or null
+		 * @param session the clear-out under way, or null
+		 * @param cleared the session's items that are gone
+		 */
+		public Clearing(ClearOut plan, Memory.Session session, List<Integer> cleared)
+		{
+			this.plan = plan;
+			this.session = session;
+			this.cleared = cleared == null ? Collections.emptySet() : new HashSet<>(cleared);
+		}
+	}
+
+	/** Slots to win back without selling, and the savings goal the list moves. */
+	public static final class Extras
+	{
+		static final Extras NONE = new Extras(null, null, null, null);
+
+		final List<Placeholders.Line> placeholders;
+		final List<Integer> keptPlaceholders;
+		final List<Tidy.Decant> decants;
+		final SavingsGoal goal;
+		final Strata strata;
+
+		/**
+		 * @param placeholders empty placeholders worth releasing
+		 * @param keptPlaceholders empty placeholders the player chose to keep
+		 * @param decants potions decanting would win slots back from
+		 * @param goal Codex Gear Roadmap's savings goal, or null
+		 */
+		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal)
+		{
+			this(placeholders, keptPlaceholders, decants, goal, null);
+		}
+
+		/** @param strata the bank in layers by age, or null */
+		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal,
+			Strata strata)
+		{
+			this.placeholders = placeholders == null ? Collections.emptyList() : placeholders;
+			this.keptPlaceholders = keptPlaceholders == null ? Collections.emptyList() : keptPlaceholders;
+			this.decants = decants == null ? Collections.emptyList() : decants;
+			this.goal = goal;
+			this.strata = strata == null ? Strata.EMPTY : strata;
+		}
+
+		/** Slots tidying wins back. */
+		int slots()
+		{
+			return placeholders.size() + Tidy.freed(decants);
+		}
 	}
 
 	private final ItemIcons icons;
@@ -53,11 +147,17 @@ public class StewardPanel extends PluginPanel
 	private final JScrollPane clear = scroller();
 	private final JScrollPane needed = scroller();
 	private final JScrollPane kept = scroller();
+	/** Which pages still show an older reckoning; a page is only rebuilt when it is looked at. */
+	private final boolean[] stale = {true, true, true};
 
 	private Reckoning reckoning;
+	private Clearing clearing = new Clearing(null, null, null);
 	private Map<Integer, String> names = Collections.emptyMap();
 	private State state = State.LOGGED_OUT;
 	private boolean alch;
+	private List<Shortfall.Goal> toGet = Collections.emptyList();
+	private boolean iron;
+	private Extras extras = Extras.NONE;
 
 	public StewardPanel(ItemIcons icons, Actions actions)
 	{
@@ -83,7 +183,7 @@ public class StewardPanel extends PluginPanel
 		content.add(kept, TABS[2]);
 		add(content, BorderLayout.CENTER);
 		tabs.onChange(this::showTab);
-		rebuild();
+		refresh(true);
 	}
 
 	private static JScrollPane scroller()
@@ -105,9 +205,30 @@ public class StewardPanel extends PluginPanel
 	 * @param names item names for every item the reckoning mentions
 	 * @param alch values are high alchemy prices rather than the Grand Exchange's
 	 */
-	public void update(Reckoning reckoning, Map<Integer, String> names, String player, State state, boolean alch)
+	public void update(Reckoning reckoning, Clearing clearing, Map<Integer, String> names, String player, State state, boolean alch)
 	{
+		update(reckoning, clearing, Collections.emptyList(), names, player, state, alch, false);
+	}
+
+	/**
+	 * @param toGet what each pinned Navigator goal still needs that the player does not own
+	 * @param iron an iron account, which gathers rather than buys
+	 */
+	public void update(Reckoning reckoning, Clearing clearing, List<Shortfall.Goal> toGet, Map<Integer, String> names, String player,
+		State state, boolean alch, boolean iron)
+	{
+		update(reckoning, clearing, toGet, names, player, state, alch, iron, Extras.NONE);
+	}
+
+	/** @param extras slots to win back by tidying, and the savings goal the list moves */
+	public void update(Reckoning reckoning, Clearing clearing, List<Shortfall.Goal> toGet, Map<Integer, String> names, String player,
+		State state, boolean alch, boolean iron, Extras extras)
+	{
+		this.extras = extras == null ? Extras.NONE : extras;
+		this.toGet = toGet == null ? Collections.emptyList() : toGet;
+		this.iron = iron;
 		this.reckoning = reckoning;
+		this.clearing = clearing == null ? new Clearing(null, null, null) : clearing;
 		this.names = names;
 		this.state = state;
 		this.alch = alch;
@@ -115,11 +236,12 @@ public class StewardPanel extends PluginPanel
 		rebuild();
 	}
 
-	/** Opens one tab, for previews and tests. */
+	/** Opens one tab, building it if it is out of date. */
 	public void showTab(int index)
 	{
 		tabs.setSelected(index, false);
 		cards.show(content, TABS[index]);
+		refresh(true);
 	}
 
 	private void updateCrest(String player)
@@ -133,14 +255,56 @@ public class StewardPanel extends PluginPanel
 		crest.update(player, reckoning.freedValue(), status, new String[]{
 			String.valueOf(reckoning.freedSlots()),
 			reckoning.getTasksDone() + "/" + reckoning.getTasksTotal(),
-			String.valueOf(reckoning.getKept().size())}, alch);
+			String.valueOf(keptCount())}, alch);
 	}
 
+	/** Everything on the Kept page: kept items and kept placeholders alike. */
+	int keptCount()
+	{
+		return (reckoning == null ? 0 : reckoning.getKept().size()) + extras.keptPlaceholders.size();
+	}
+
+	/** Marks every page out of date, and rebuilds the one in view if the panel is open. */
 	private void rebuild()
 	{
-		rebuildClear();
-		rebuildNeeded();
-		rebuildKept();
+		Arrays.fill(stale, true);
+		refresh(false);
+	}
+
+	@Override
+	public void onActivate()
+	{
+		refresh(true);
+	}
+
+	/**
+	 * Rebuilds the page in view if it is out of date. A bank visit changes the reckoning many times,
+	 * so while the panel is closed nothing is rebuilt, and while it is open only the page in view is.
+	 */
+	private void refresh(boolean force)
+	{
+		if (!force && !isShowing())
+		{
+			return;
+		}
+		int page = tabs.getSelected();
+		if (page < 0 || page >= stale.length || !stale[page])
+		{
+			return;
+		}
+		stale[page] = false;
+		if (page == 0)
+		{
+			rebuildClear();
+		}
+		else if (page == 1)
+		{
+			rebuildNeeded();
+		}
+		else
+		{
+			rebuildKept();
+		}
 	}
 
 	private boolean waiting(StackPanel stack)
@@ -177,7 +341,132 @@ public class StewardPanel extends PluginPanel
 		tiles.add(new StatTile(Format.coins(value(dust)), "Dusty", count(dust.size()), Theme.DUST));
 		stack.add(tiles);
 
-		stack.add(new SectionHeader("Their work is done", spent.isEmpty() ? null : Format.coins(value(spent))));
+		if (clearing.session != null)
+		{
+			session(stack, clearing.session);
+		}
+		else
+		{
+			if (extras.goal != null && extras.goal.isWorthShowing())
+			{
+				stack.add(ClearOutCard.goal(extras.goal));
+			}
+			if (clearing.plan != null && !clearing.plan.isEmpty())
+			{
+				stack.add(ClearOutCard.plan(clearing.plan, actions == null ? null : actions::startClearOut,
+					actions == null ? null : () -> actions.showInBank(BankView.CLEAR_OUT)));
+			}
+			lists(stack, spent, dust);
+		}
+
+		List<Advice> spared = reckoning.getSpared();
+		List<Advice> outclassed = reckoning.getOutclassed();
+		if (clearing.session == null && !outclassed.isEmpty())
+		{
+			stack.add(new SectionHeader("Outclassed tools", Format.coins(value(outclassed))));
+			stack.add(rows(outclassed, true));
+			more(stack, outclassed);
+		}
+		if (clearing.session == null)
+		{
+			tidy(stack);
+		}
+		if (!spared.isEmpty())
+		{
+			stack.add(new SectionHeader("Kept for your plans", count(spared.size())));
+			stack.add(rows(spared, false));
+			more(stack, spared);
+		}
+		List<Advice> untradeable = reckoning.getUntradeableDust();
+		if (!untradeable.isEmpty())
+		{
+			stack.add(new SectionHeader("Untradeable, untouched", count(untradeable.size())));
+			Card warn = note("Look before you drop", "These cannot be bought back, and some may be rewards you cannot get again. They are never in the totals above.");
+			warn.accent(Theme.EMBER);
+			stack.add(warn);
+			stack.add(rows(untradeable, true));
+			more(stack, untradeable);
+		}
+		stack.add(Ui.wrapped("Click an item to keep it off the list. Nothing is ever sold or dropped for you.", Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
+		replace(clear, stack);
+	}
+
+	/** Slots won back without selling: potions to decant and empty placeholders to release. */
+	private void tidy(StackPanel stack)
+	{
+		if (extras.decants.isEmpty() && extras.placeholders.isEmpty())
+		{
+			return;
+		}
+		int slots = extras.slots();
+		stack.add(new SectionHeader("Tidy up", slots == 1 ? "1 slot" : slots + " slots"));
+		JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
+		rows.setOpaque(false);
+		int shown = 0;
+		for (Tidy.Decant d : extras.decants)
+		{
+			if (shown++ >= ROWS)
+			{
+				break;
+			}
+			Advice a = new Advice(d.getIcon(), 0, 0, true, Advice.Verdict.DUST, null, 0);
+			String note = d.getDoses() + " doses in " + d.getSlots() + " slots";
+			String after = d.getFull() + " x (4)" + (d.getLeftover() > 0 ? " + (" + d.getLeftover() + ")" : "");
+			AdviceRow row = new AdviceRow(a, d.getName(), note, null, icons, null, null, alch)
+				.accent(Theme.TEAL).amount(slotCount(d.getFreed())).route("decant", Theme.TEAL);
+			row.setToolTipText("<html>" + Ui.escape(d.getName()) + ": " + d.getDoses() + " doses in " + d.getSlots()
+				+ " slots<br>Decanted: " + after + ", " + (d.getSlotsAfter() == 1 ? "1 slot" : d.getSlotsAfter() + " slots") + "</html>");
+			rows.add(row);
+		}
+		for (Placeholders.Line l : extras.placeholders)
+		{
+			if (shown++ >= ROWS)
+			{
+				break;
+			}
+			boolean done = l.getWhy() == Placeholders.Why.DONE;
+			Advice a = new Advice(l.getItemId(), 0, 0, true, done ? Advice.Verdict.SPENT : Advice.Verdict.DUST, l.getTasks(), l.getDays());
+			String note = done ? (l.getTasks().isEmpty() ? "Its quests are done" : l.getTasks().get(0))
+				: "Empty " + (l.isSinceWatching() && l.getDays() > 1 ? l.getDays() + "+ days" : Format.days(l.getDays()));
+			String more = done && l.getTasks().size() > 1 ? "+" + (l.getTasks().size() - 1) : null;
+			String action = actions == null ? null : "Keep it";
+			Runnable run = actions == null ? null : () -> actions.keep(l.getItemId(), true);
+			AdviceRow row = new AdviceRow(a, name(l.getItemId()), note, more, icons, action, run, alch)
+				.ghost().amount("1 slot").route("release", Theme.TEXT_MUTED);
+			rows.add(row);
+		}
+		stack.add(rows);
+		int total = extras.decants.size() + extras.placeholders.size();
+		StringBuilder how = new StringBuilder();
+		if (total > ROWS)
+		{
+			how.append("And ").append(total - ROWS).append(" more. ");
+		}
+		if (!extras.decants.isEmpty())
+		{
+			how.append("Bob Barter at the Grand Exchange decants potions into 4 doses. ");
+		}
+		if (!extras.placeholders.isEmpty())
+		{
+			how.append("Release a placeholder from its menu in the bank; the faded ones are marked there.");
+		}
+		stack.add(Ui.wrapped(how.toString().trim(), Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
+		if (actions != null)
+		{
+			stack.add(ClearOutCard.buttons(new CodexButton("Show in bank", false, () -> actions.showInBank(BankView.TIDY))));
+		}
+	}
+
+	private static String slotCount(int n)
+	{
+		return n == 1 ? "1 slot" : n + " slots";
+	}
+
+	/** The done-with and dusty lists, as the Steward sees them before a clear-out. */
+	private void lists(StackPanel stack, List<Advice> spent, List<Advice> dust)
+	{
+		// The tiles above give each list's worth; the headings do not say it a second time.
+		stack.add(new SectionHeader("Their work is done"));
 		if (spent.isEmpty())
 		{
 			stack.add(note("Nothing spent yet", "Items bought or kept for a quest or diary land here once every quest and diary that needs them is done."));
@@ -188,7 +477,7 @@ public class StewardPanel extends PluginPanel
 			more(stack, spent);
 		}
 
-		stack.add(new SectionHeader("Gathering dust", dust.isEmpty() ? null : Format.coins(value(dust))));
+		stack.add(new SectionHeader("Gathering dust"));
 		if (reckoning.getWatchedDays() < reckoning.getDustDays())
 		{
 			stack.add(new DustWatch(reckoning.getWatchedDays(), reckoning.getDustDays()));
@@ -202,8 +491,114 @@ public class StewardPanel extends PluginPanel
 			stack.add(rows(dust, true));
 			more(stack, dust);
 		}
-		stack.add(Ui.wrapped("Click an item to keep it off the list. Nothing is ever sold or dropped for you.", Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
-		replace(clear, stack);
+	}
+
+	/** A clear-out under way: its progress, what is left in order, what is gone, and what was left off. */
+	private void session(StackPanel stack, Memory.Session session)
+	{
+		List<Memory.Planned> left = new ArrayList<>();
+		List<Memory.Planned> gone = new ArrayList<>();
+		List<Memory.Planned> off = new ArrayList<>();
+		long freed = 0;
+		long worth = 0;
+		for (Memory.Planned p : session.getItems())
+		{
+			Advice now = reckoning.adviceFor(p.getItemId());
+			if (clearing.cleared.contains(p.getItemId()))
+			{
+				gone.add(p);
+				freed += p.getGain();
+				worth += p.getGain();
+			}
+			else if (now != null && !ClearOut.listed(now))
+			{
+				off.add(p);
+			}
+			else
+			{
+				left.add(p);
+				worth += p.getGain();
+			}
+		}
+		stack.add(ClearOutCard.progress(gone.size(), gone.size() + left.size(), freed, worth,
+			actions == null ? null : actions::endClearOut, actions == null || left.isEmpty() ? null : () -> actions.showInBank(BankView.CLEAR_OUT)));
+		if (!left.isEmpty())
+		{
+			long leftWorth = worth - freed;
+			stack.add(new SectionHeader("Next up", leftWorth > 0 ? Format.coins(leftWorth) : null));
+			stack.add(steps(left, false));
+			if (left.size() > ROWS)
+			{
+				stack.add(Ui.label("and " + (left.size() - ROWS) + " more", Theme.small(), Theme.TEXT_FAINT));
+			}
+		}
+		if (!gone.isEmpty())
+		{
+			stack.add(new SectionHeader("Gone", freed > 0 ? Format.coins(freed) : null));
+			stack.add(steps(gone, true));
+		}
+		if (!off.isEmpty())
+		{
+			stack.add(new SectionHeader("Left off", count(off.size())));
+			stack.add(steps(off, false));
+		}
+	}
+
+	private JPanel steps(List<Memory.Planned> list, boolean gone)
+	{
+		JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
+		rows.setOpaque(false);
+		for (int i = 0; i < list.size() && i < ROWS; i++)
+		{
+			rows.add(step(list.get(i), reckoning.adviceFor(list.get(i).getItemId()), gone));
+		}
+		return rows;
+	}
+
+	/** One item of a clear-out, with its route; it says so when the Steward has changed its mind. */
+	private AdviceRow step(Memory.Planned p, Advice current, boolean gone)
+	{
+		ClearOut.Route route = p.getRoute();
+		Advice a = current != null ? current
+			: new Advice(p.getItemId(), p.getQuantity(), 0, route != ClearOut.Route.DROP, Advice.Verdict.SPENT, null, 0);
+		String note;
+		if (gone)
+		{
+			note = "Gone from your bank";
+		}
+		else if (current != null && (current.getVerdict() == Advice.Verdict.KEPT || current.getVerdict() == Advice.Verdict.NEEDED
+			|| current.getVerdict() == Advice.Verdict.SPARED))
+		{
+			note = current.getVerdict() == Advice.Verdict.KEPT ? "You kept it since"
+				: current.getVerdict() == Advice.Verdict.SPARED && !current.getClaims().isEmpty() ? current.getClaims().get(0).shortText()
+				: "Needed again";
+		}
+		else
+		{
+			note = how(route, a);
+		}
+		boolean off = !gone && current != null && !ClearOut.listed(current);
+		AdviceRow row = new AdviceRow(a, name(p.getItemId()), note, null, icons, null, null, alch)
+			.amount(off ? "-" : route == ClearOut.Route.DROP ? "Drop" : Format.coins(p.getGain()));
+		if (route != ClearOut.Route.DROP && !off)
+		{
+			row.route(route.getLabel().toLowerCase(), Theme.route(route));
+		}
+		return gone ? row.cleared() : row;
+	}
+
+	/** How to clear an item, in a few words. */
+	private static String how(ClearOut.Route route, Advice a)
+	{
+		switch (route)
+		{
+			case SELL:
+				return "After the 2% tax";
+			case ALCH:
+				return a.getQuantity() > 1 ? a.getQuantity() + " casts, less runes" : "One cast, less the rune";
+			default:
+				return a.isTradeable() ? "Worth nothing to sell" : "Cannot be traded";
+		}
 	}
 
 	private void rebuildNeeded()
@@ -230,20 +625,89 @@ public class StewardPanel extends PluginPanel
 			}
 		}
 		int open = reckoning.getTasksTotal() - reckoning.getTasksDone();
+		int forGoals = 0;
+		for (String task : byTask.keySet())
+		{
+			if (!reckoning.goalsOf(task).isEmpty())
+			{
+				forGoals++;
+			}
+		}
 		head.add(Ui.label(byTask.isEmpty() ? "Nothing held back" : "Keep for unfinished work", Theme.title(), Theme.GOLD_BRIGHT), BorderLayout.NORTH);
 		head.add(Ui.wrapped(byTask.isEmpty()
 			? "None of your " + open + " unfinished quests and diaries needs anything in your bank."
 			: byTask.size() + " of your " + open + " unfinished quests and diaries need " + count(heldItems.size())
-				+ (heldValue > 0 ? " worth " + Format.coins(heldValue) : "") + " from your bank. These are never listed to clear out.",
+				+ (heldValue > 0 ? " worth " + Format.coins(heldValue) : "") + " from your bank. These are never listed to clear out."
+				+ (forGoals > 0 ? " Work toward your Navigator goals comes first." : ""),
 			Theme.small(), Theme.TEXT_MUTED, WIDTH - 30), BorderLayout.CENTER);
 		stack.add(head);
+		for (Shortfall.Goal goal : toGet)
+		{
+			shortfall(stack, goal);
+		}
 		for (Map.Entry<String, List<Advice>> e : byTask.entrySet())
 		{
 			long held = value(e.getValue());
 			stack.add(new SectionHeader(e.getKey(), held > 0 ? Format.coins(held) : null));
+			List<String> goals = reckoning.goalsOf(e.getKey());
+			if (!goals.isEmpty())
+			{
+				String line = goals.get(0).equals(e.getKey()) ? "Your Navigator goal" : "On the way to " + goals.get(0);
+				stack.add(new GoalLine(goals.size() > 1 ? line + " +" + (goals.size() - 1) : line, goals));
+			}
 			stack.add(rows(e.getValue(), false, e.getKey()));
 		}
 		replace(needed, stack);
+	}
+
+	/** Rows shown per goal before the rest are summed up. */
+	private static final int TO_GET_ROWS = 8;
+
+	/** What a pinned goal still needs that the player does not own, most costly first. */
+	private void shortfall(StackPanel stack, Shortfall.Goal goal)
+	{
+		List<Shortfall.Line> lines = goal.getLines();
+		stack.add(new SectionHeader("To get: " + goal.getName(), iron || goal.getCost() == 0 ? count(lines.size() + goal.getMore()) : Format.coins(goal.getCost())));
+		if (lines.isEmpty())
+		{
+			stack.add(note("You own what it needs", goal.getUntradeable() > 0
+				? "Everything you can buy is in your bank or pack. Its quests hand you the rest."
+				: "Everything its " + goal.getTasksLeft() + (goal.getTasksLeft() == 1 ? " quest or diary" : " quests and diaries") + " ask you to bring is in your bank or pack."));
+			return;
+		}
+		JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
+		rows.setOpaque(false);
+		for (int i = 0; i < lines.size() && i < TO_GET_ROWS; i++)
+		{
+			Shortfall.Line l = lines.get(i);
+			Advice a = new Advice(l.getItemId(), l.getMissing(), l.getPrice(), true, Advice.Verdict.NEEDED, l.getTasks(), 0);
+			String note = l.getHave() > 0 ? "Have " + l.getHave() + " of " + l.getNeeded()
+				: l.getChoices() > 1 ? "Or one of " + (l.getChoices() - 1) + " others" : l.getTasks().get(0);
+			String more = l.getTasks().size() > 1 && l.getHave() == 0 && l.getChoices() == 1 ? "+" + (l.getTasks().size() - 1) : null;
+			AdviceRow row = new AdviceRow(a, name(l.getItemId()), note, more, icons, null, null, false);
+			rows.add(row.amount(iron ? "Gather" : l.getCost() > 0 ? Format.coins(l.getCost()) : "-"));
+		}
+		stack.add(rows);
+		int hidden = lines.size() - Math.min(lines.size(), TO_GET_ROWS) + goal.getMore();
+		StringBuilder tail = new StringBuilder();
+		if (hidden > 0)
+		{
+			long rest = 0;
+			for (int i = TO_GET_ROWS; i < lines.size(); i++)
+			{
+				rest += lines.get(i).getCost();
+			}
+			tail.append("And ").append(hidden).append(hidden == 1 ? " more item" : " more items")
+				.append(iron || rest == 0 ? "" : ", about " + Format.coins(rest)).append(". ");
+		}
+		if (goal.getUntradeable() > 0)
+		{
+			tail.append("Quest items its quests hand you are left out.");
+		}
+		if (tail.length() > 0)
+		{
+			stack.add(Ui.wrapped(tail.toString().trim(), Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
+		}
 	}
 
 	private void rebuildKept()
@@ -254,15 +718,34 @@ public class StewardPanel extends PluginPanel
 			replace(kept, stack);
 			return;
 		}
+		if (!extras.strata.isEmpty())
+		{
+			// The whole bank by age first: what is kept is easier to judge against it.
+			stack.add(new StrataCard(extras.strata, icons, names, actions == null ? null : actions::showLayer));
+		}
 		List<Advice> list = reckoning.getKept();
-		if (list.isEmpty())
+		if (list.isEmpty() && extras.keptPlaceholders.isEmpty())
 		{
 			stack.add(note("Nothing kept aside", "Click anything on the Clear out page to keep it. Kept items stay off the list until you let them go."));
 		}
-		else
+		else if (!list.isEmpty())
 		{
 			stack.add(new SectionHeader("Kept aside", count(list.size())));
 			stack.add(rows(list, true));
+		}
+		if (!extras.keptPlaceholders.isEmpty())
+		{
+			stack.add(new SectionHeader("Kept placeholders", slotCount(extras.keptPlaceholders.size())));
+			JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
+			rows.setOpaque(false);
+			for (int i = 0; i < extras.keptPlaceholders.size() && i < ROWS; i++)
+			{
+				int id = extras.keptPlaceholders.get(i);
+				Advice a = new Advice(id, 0, 0, true, Advice.Verdict.KEPT, null, 0);
+				rows.add(new AdviceRow(a, name(id), "Empty placeholder", null, icons, actions == null ? null : "Let it go",
+					actions == null ? null : () -> actions.keep(id, false), alch).ghost().amount("1 slot"));
+			}
+			stack.add(rows);
 		}
 		replace(kept, stack);
 	}
@@ -288,9 +771,32 @@ public class StewardPanel extends PluginPanel
 				action = isKept ? "Let it go" : "Keep it";
 				run = () -> actions.keep(a.getItemId(), !isKept);
 			}
-			rows.add(new AdviceRow(a, name(a.getItemId()), note(a, section), more(a), icons, action, run, alch));
+			AdviceRow row = new AdviceRow(a, name(a.getItemId()), note(a, section), more(a), icons, action, run, alch);
+			ClearOut.Step step = stepFor(a);
+			if (step != null && step.getRoute() != ClearOut.Route.DROP)
+			{
+				row.route(step.getRoute().getLabel().toLowerCase(), Theme.route(step.getRoute()));
+			}
+			rows.add(row);
 		}
 		return rows;
+	}
+
+	/** The clear-out plan's step for an item on the done-with or dusty list. */
+	private ClearOut.Step stepFor(Advice a)
+	{
+		if (clearing.plan == null || !ClearOut.listed(a))
+		{
+			return null;
+		}
+		for (ClearOut.Step step : clearing.plan.getSteps())
+		{
+			if (step.getAdvice().getItemId() == a.getItemId())
+			{
+				return step;
+			}
+		}
+		return null;
 	}
 
 	private void more(StackPanel stack, List<Advice> list)
@@ -314,7 +820,11 @@ public class StewardPanel extends PluginPanel
 			case SPENT:
 				return tasks.isEmpty() ? "Its quests are done" : tasks.get(0);
 			case DUST:
-				return "Untouched " + untouched(a);
+				return a.getClaims().isEmpty() ? "Untouched " + untouched(a) : "STASH gear, " + untouched(a);
+			case SPARED:
+				return a.getClaims().isEmpty() ? "Kept for a plan" : a.getClaims().get(0).shortText();
+			case OUTCLASSED:
+				return name(a.getBetter()) + " is faster";
 			case NEEDED:
 				// Listed under one quest already; name another that wants it too.
 				for (String task : tasks)
@@ -333,6 +843,11 @@ public class StewardPanel extends PluginPanel
 	/** A count of further quests that is never clipped away, like "+2". */
 	private static String more(Advice a)
 	{
+		if (a.getVerdict() == Advice.Verdict.SPARED)
+		{
+			int extra = a.getClaims().size() - 1;
+			return extra > 0 ? "+" + extra : null;
+		}
 		int extra = a.getTasks().size() - (a.getVerdict() == Advice.Verdict.NEEDED ? 2 : 1);
 		return extra > 0 && a.getVerdict() != Advice.Verdict.DUST && a.getVerdict() != Advice.Verdict.KEPT ? "+" + extra : null;
 	}

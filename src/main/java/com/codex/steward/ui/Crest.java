@@ -131,19 +131,31 @@ public class Crest extends JComponent
 		g.setColor(Theme.TEXT_MUTED);
 		g.drawString(Ui.clip(heading, small, room), tx, 22);
 
-		String figure = known ? Format.coins(Math.round(count.get())) : "-";
 		int top = 27;
-		int figureW = paintLarge(g, figure, tx, top);
-		if (known)
+		int cy = top + 50;
+		if (!known)
 		{
+			// Nothing counted yet: what to do takes the figure's place rather than a lone dash.
+			g.setFont(Theme.body());
+			FontMetrics body = g.getFontMetrics();
+			Ui.shadowed(g, Ui.clip(status == null ? "" : status, body, room), tx, top + 18, Theme.mix(Theme.TEXT_MUTED, Theme.GOLD, 0.45));
+			g.setFont(Theme.small());
+			g.setColor(Theme.TEXT_FAINT);
+			g.drawString(Ui.clip("What your bank could free", small, room), tx, top + 34);
+		}
+		else
+		{
+			int figureW = paintLarge(g, Format.coins(Math.round(count.get())), tx, top);
 			g.setFont(Theme.small());
 			g.setColor(Theme.GOLD_DIM);
 			g.drawString("gp", tx + figureW + 3, top + 18);
 		}
-		int fy = top + 26;
-		int cy = fy + 24;
 		g.setFont(Theme.small());
-		if (status != null)
+		if (!known)
+		{
+			// Said above, in the figure's place.
+		}
+		else if (status != null)
 		{
 			g.setColor(Theme.mix(Theme.TEXT_MUTED, Theme.GOLD, 0.3));
 			g.drawString(Ui.clip(status, small, room), tx, cy);

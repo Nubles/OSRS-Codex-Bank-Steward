@@ -1,5 +1,6 @@
 package com.codex.steward.core;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -139,6 +140,73 @@ public class CatalogTest
 				assertFalse(id + " for " + catalog.getTasks().get(need.getTask()).getName(), need.isFirm());
 			}
 			assertFalse(catalog.needsOf(id).isEmpty());
+		}
+	}
+
+	@Test
+	public void bundledDataKnowsStashGearAndNavigatorGoals() throws Exception
+	{
+		Catalog catalog = load();
+		// Steel platebody fills a medium STASH unit; a lobster fills none.
+		assertTrue((catalog.stashTiers(net.runelite.api.gameval.ItemID.STEEL_PLATEBODY) & 4) != 0);
+		assertTrue(catalog.stashTiers(net.runelite.api.gameval.ItemID.LOBSTER) == 0);
+		// Dragon Slayer II covers itself and the quests before it, all the way down.
+		Set<Integer> ds2 = new HashSet<>();
+		for (int t : catalog.goalTasks("quest:Dragon Slayer II"))
+		{
+			ds2.add(t);
+		}
+		assertTrue(ds2.contains(taskIndex(catalog, "Dragon Slayer II")));
+		assertTrue(ds2.contains(taskIndex(catalog, "Dragon Slayer I")));
+		assertTrue(ds2.contains(taskIndex(catalog, "Legends' Quest")));
+		assertTrue(ds2.contains(taskIndex(catalog, "Shield of Arrav - Phoenix Gang")));
+		assertFalse(ds2.contains(taskIndex(catalog, "Cook's Assistant")));
+		// Navigator names diaries without "Diary", and some areas shorter.
+		int[] kourend = catalog.goalTasks("diary:Kourend Easy");
+		assertTrue(kourend.length > 0);
+		assertTrue(catalog.goalTasks("diary:Lumbridge Elite").length > 0);
+		// Every quest for the cape, and nothing for a goal the Steward does not know.
+		assertTrue(catalog.goalTasks("cape:Quest point cape").length > 150);
+		assertTrue(catalog.goalTasks("quest:Not A Quest").length == 0);
+		for (int[] list : new int[][]{catalog.goalTasks("quest:Desert Treasure II - The Fallen Empire"), kourend})
+		{
+			for (int t : list)
+			{
+				assertTrue(t >= 0 && t < catalog.getTasks().size());
+			}
+		}
+	}
+
+	@Test
+	public void navigatorGoalsForQuestsQuestHelperLacksStillMatch() throws Exception
+	{
+		Catalog catalog = load();
+		// Quest Helper has no helper for these yet, so they hold no items, but Navigator can pin
+		// them: "quest:Learning the Ropes" used to cover nothing at all and never matched.
+		for (String name : new String[]{"Learning the Ropes", "The Frozen Door", "Into the Tombs"})
+		{
+			int own = taskIndex(catalog, name);
+			Task task = catalog.getTasks().get(own);
+			assertEquals(name, Quest.valueOf(task.getQuest()).getName());
+			boolean covered = false;
+			for (int t : catalog.goalTasks("quest:" + name))
+			{
+				covered |= t == own;
+			}
+			assertTrue(name, covered);
+		}
+		// Every quest goal Navigator can save is named as RuneLite names the quest.
+		Set<String> runelite = new HashSet<>();
+		for (Quest q : Quest.values())
+		{
+			runelite.add(q.getName());
+		}
+		for (Task task : catalog.getTasks())
+		{
+			if (!task.usesVarbit() && catalog.goalTasks("quest:" + task.getName()).length > 0)
+			{
+				assertTrue(task.getName(), runelite.contains(task.getName()));
+			}
 		}
 	}
 }

@@ -17,3 +17,15 @@
    ```
 
 `build_data.py` also decides which items are general goods and which are lasting rewards; the rules and name patterns are at the top of the script.
+
+4. Add clue STASH gear and Codex Navigator's goal chains. `ExtractStash.java` sits in RuneLite's clue package so it can read the emote clue list; run it against a RuneLite build, then add both to the data:
+
+   ```bash
+   javac -cp "$CP" -d build/tools tools/ExtractStash.java
+   java -cp "build/tools:$CP" net.runelite.client.plugins.cluescrolls.clues.ExtractStash > build/stash.json
+   python3 tools/add_links.py src/main/resources/com/codex/steward/steward-data.json build/stash.json \
+       path/to/OSRS-Codex-Navigator/src/main/resources/com/codex/navigator/codex-data.json \
+       path/to/runelite-api/src/main/java/net/runelite/api/Quest.java
+   ```
+
+   The last argument lets it add a task with no items for each Navigator quest Quest Helper has no helper for yet, so goals naming those quests still match.
