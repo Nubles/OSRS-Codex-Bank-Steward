@@ -15,6 +15,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.List;
 import javax.swing.JComponent;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
@@ -28,6 +29,8 @@ import javax.swing.JPopupMenu;
 class AdviceRow extends JComponent
 {
 	private static final int WELL = 32;
+	/** Quests named in a row's tooltip before the rest are counted. */
+	static final int TIP_TASKS = 8;
 
 	private final Advice advice;
 	private final String name;
@@ -148,9 +151,15 @@ class AdviceRow extends JComponent
 		{
 			tip.append("<br>Cannot be traded");
 		}
-		for (String task : advice.getTasks())
+		List<String> tasks = advice.getTasks();
+		for (int i = 0; i < tasks.size() && i < TIP_TASKS; i++)
 		{
-			tip.append("<br>").append(advice.getVerdict() == Advice.Verdict.NEEDED ? "Still for " : "Done: ").append(Ui.escape(task));
+			tip.append("<br>").append(advice.getVerdict() == Advice.Verdict.NEEDED ? "Still for " : "Done: ").append(Ui.escape(tasks.get(i)));
+		}
+		if (tasks.size() > TIP_TASKS)
+		{
+			// A spade or coins is wanted by dozens of quests: a tooltip naming them all ran off the screen.
+			tip.append("<br>and ").append(tasks.size() - TIP_TASKS).append(" more");
 		}
 		for (Claim claim : advice.getClaims())
 		{
