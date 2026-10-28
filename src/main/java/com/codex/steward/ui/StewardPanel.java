@@ -655,10 +655,24 @@ public class StewardPanel extends PluginPanel
 				String line = goals.get(0).equals(e.getKey()) ? "Your Navigator goal" : "On the way to " + goals.get(0);
 				stack.add(new GoalLine(goals.size() > 1 ? line + " +" + (goals.size() - 1) : line, goals));
 			}
-			stack.add(rows(e.getValue(), false, e.getKey()));
+			List<Advice> list = e.getValue();
+			stack.add(rows(list.subList(0, Math.min(list.size(), NEEDED_ROWS)), false, e.getKey()));
+			if (list.size() > NEEDED_ROWS)
+			{
+				int hidden = list.size() - NEEDED_ROWS;
+				long rest = value(list.subList(NEEDED_ROWS, list.size()));
+				stack.add(Ui.label("and " + hidden + (hidden == 1 ? " more item" : " more items") + (rest > 0 ? ", worth " + Format.coins(rest) : ""),
+					Theme.small(), Theme.TEXT_FAINT));
+			}
 		}
 		replace(needed, stack);
 	}
+
+	/**
+	 * Rows shown per quest on the Needed page before the rest are summed up. An item wanted by many
+	 * quests is listed under each, so an early account's page ran to thousands of rows.
+	 */
+	static final int NEEDED_ROWS = 6;
 
 	/** Rows shown per goal before the rest are summed up. */
 	private static final int TO_GET_ROWS = 8;
@@ -892,6 +906,10 @@ public class StewardPanel extends PluginPanel
 
 	private static void replace(JScrollPane scroll, JComponent view)
 	{
+		// An opaque page lets the viewport blit while scrolling instead of repainting every row in view
+		// and the panel behind them, which on a long page kept the processor busy.
+		view.setOpaque(true);
+		view.setBackground(Theme.INK);
 		int position = scroll.getVerticalScrollBar().getValue();
 		scroll.setViewportView(view);
 		scroll.revalidate();
