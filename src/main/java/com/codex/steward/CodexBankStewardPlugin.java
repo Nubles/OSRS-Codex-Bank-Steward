@@ -1,5 +1,6 @@
 package com.codex.steward;
 
+import com.codex.steward.notes.FieldNotes;
 import com.codex.steward.core.Advice;
 import com.codex.steward.core.BankItems;
 import com.codex.steward.core.BankSnapshot;
@@ -148,6 +149,9 @@ public class CodexBankStewardPlugin extends Plugin
 	@Inject
 	private CodexBankStewardConfig config;
 
+	/** The optional local record of what the plugin read and decided. */
+	private FieldNotes notes;
+
 	/** RuneLite's Bank Tags, through which the bank can be shown filtered to one of the Steward's lists. */
 	@Inject
 	private TagManager tagManager;
@@ -236,6 +240,11 @@ public class CodexBankStewardPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
+		notes = new FieldNotes(this::getPluginDirectory, gson);
+		if (config.fieldNotes())
+		{
+			notes.open();
+		}
 		catalog = loadCatalog();
 		lastPublished = null;
 		// The plugin is the same object when turned off and on again: what was read last time is not this login's.
@@ -335,6 +344,11 @@ public class CodexBankStewardPlugin extends Plugin
 	@Override
 	protected void shutDown()
 	{
+		if (notes != null)
+		{
+			notes.shutdown();
+			notes = null;
+		}
 		overlayManager.remove(marks);
 		clientToolbar.removeNavigation(navButton);
 		tagManager.unregisterTag(BankView.CLEAR_OUT);
@@ -501,6 +515,18 @@ public class CodexBankStewardPlugin extends Plugin
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
+		if (CodexBankStewardConfig.GROUP.equals(event.getGroup()) && "fieldNotes".equals(event.getKey()) && notes != null)
+		{
+			if (config.fieldNotes())
+			{
+				notes.open();
+			}
+			else
+			{
+				notes.close();
+			}
+			return;
+		}
 		String group = event.getGroup();
 		// The Steward's own saved memory and bank snapshot are not options: saving them changes nothing shown.
 		boolean ours = CodexBankStewardConfig.GROUP.equals(group) && !MEMORY_KEY.equals(event.getKey())
@@ -938,6 +964,18 @@ public class CodexBankStewardPlugin extends Plugin
 			describe(id);
 			return tradeable.getOrDefault(id, false);
 		});
+		if (notes.isOpen())
+		{
+			// Each verdict with the reason behind it, so a wrong call on an item can be traced.
+			com.google.gson.JsonObject n = new com.google.gson.JsonObject();
+			n.addProperty("watchedDays", reckoning.getWatchedDays());
+			n.addProperty("tasks", reckoning.getTasksDone() + "/" + reckoning.getTasksTotal());
+			n.add("spent", adviceNotes(reckoning.getSpent()));
+			n.add("dust", adviceNotes(reckoning.getDust()));
+			n.add("outclassed", adviceNotes(reckoning.getOutclassed()));
+			n.add("spared", adviceNotes(reckoning.getSpared()));
+			notes.noteChanged("reckoning", n);
+		}
 		List<Advice> going = new ArrayList<>(reckoning.getSpent());
 		going.addAll(reckoning.getDust());
 		going.addAll(reckoning.getOutclassed());
@@ -1214,6 +1252,25 @@ public class CodexBankStewardPlugin extends Plugin
 	}
 
 	/** Hands the panel and the bank marks the latest reckoning; it is immutable, so Swing may keep it. */
+	private com.google.gson.JsonArray adviceNotes(List<Advice> list)
+	{
+		com.google.gson.JsonArray out = new com.google.gson.JsonArray();
+		for (Advice a : list)
+		{
+			com.google.gson.JsonObject o = new com.google.gson.JsonObject();
+			o.addProperty("id", a.getItemId());
+			o.addProperty("qty", a.getQuantity());
+			o.addProperty("untouched", a.getUntouchedDays());
+			o.addProperty("tasks", String.join("; ", a.getTasks()));
+			if (a.getBetter() > 0)
+			{
+				o.addProperty("better", a.getBetter());
+			}
+			out.add(o);
+		}
+		return out;
+	}
+
 	private void publish()
 	{
 		StewardPanel target = panel;
