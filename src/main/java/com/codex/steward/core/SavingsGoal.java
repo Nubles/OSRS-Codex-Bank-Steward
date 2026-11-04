@@ -81,6 +81,39 @@ public final class SavingsGoal
 		return new SavingsGoal(saved.name, cost, coins, Math.max(0, gain));
 	}
 
+	/**
+	 * Every piece of the saved goal, owned or not, so gear on the player's road is never called
+	 * outgrown. Empty when there is no goal or it cannot be read.
+	 */
+	public static java.util.Set<Integer> pieces(Gson gson, String json)
+	{
+		java.util.Set<Integer> out = new java.util.HashSet<>();
+		if (json == null || json.isEmpty())
+		{
+			return out;
+		}
+		Saved saved = Salvage.read(gson, json, Saved.class);
+		if (saved == null || saved.ids == null)
+		{
+			return out;
+		}
+		for (Integer id : saved.ids)
+		{
+			if (id != null && id > 0)
+			{
+				out.add(id);
+			}
+		}
+		return out;
+	}
+
+	/** The saved goal's name, or null when there is none or it cannot be read. */
+	public static String name(Gson gson, String json)
+	{
+		Saved saved = json == null || json.isEmpty() ? null : Salvage.read(gson, json, Saved.class);
+		return saved == null || saved.name == null || saved.name.isEmpty() ? null : saved.name;
+	}
+
 	public String getName()
 	{
 		return name;

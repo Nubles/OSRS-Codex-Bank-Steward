@@ -163,6 +163,18 @@ public interface CodexBankStewardConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "outgrownGear",
+		name = "Find outgrown gear",
+		description = "List gear that something you own and wear beats for every style you fight with, and say why the rest is kept",
+		position = 6,
+		section = listing
+	)
+	default boolean outgrownGear()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "untradeableDust",
 		name = "Show untradeable dust",
 		description = "Also list dusty untradeable items, apart and with a warning, never counted in the gold or slots",

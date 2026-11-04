@@ -19,6 +19,12 @@ public class SectionHeader extends JComponent
 		this(text, null);
 	}
 
+	/** The heading as drawn, in capitals. */
+	public String getText()
+	{
+		return text;
+	}
+
 	public SectionHeader(String text, String trailing)
 	{
 		this.text = text.toUpperCase();
