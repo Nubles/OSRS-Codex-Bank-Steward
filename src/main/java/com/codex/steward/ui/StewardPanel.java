@@ -2,6 +2,7 @@ package com.codex.steward.ui;
 
 import com.codex.steward.core.Advice;
 import com.codex.steward.core.Architect;
+import com.codex.steward.core.BankedXp;
 import com.codex.steward.core.BankView;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
@@ -34,14 +35,15 @@ import javax.swing.border.EmptyBorder;
 import net.runelite.client.ui.PluginPanel;
 
 /**
- * The Steward's side panel: the crest, then four pages. Clear out lists what can go, Needed
+ * The Steward's side panel: the crest, then five pages. Clear out lists what can go, Needed
  * lists what unfinished quests and diaries still hold back, Kept lists what the player chose
- * to keep off the list, and Design lays the bank out anew as Bank Tags tabs.
+ * to keep off the list, Design lays the bank out anew as Bank Tags tabs, and Banked counts the
+ * experience the bank holds.
  */
 public class StewardPanel extends PluginPanel
 {
 	static final int WIDTH = 200;
-	private static final String[] TABS = {"clear", "needed", "kept", "design"};
+	private static final String[] TABS = {"clear", "needed", "kept", "design", "banked"};
 	private static final int ROWS = 60;
 
 	/** What the panel has to show. */
@@ -119,6 +121,7 @@ public class StewardPanel extends PluginPanel
 		final Strata strata;
 		final Architect.Design design;
 		final List<Elsewhere.Store> elsewhere;
+		final BankedXp.Report banked;
 
 		/**
 		 * @param placeholders empty placeholders worth releasing
@@ -149,6 +152,14 @@ public class StewardPanel extends PluginPanel
 		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal,
 			Strata strata, Architect.Design design, List<Elsewhere.Store> elsewhere)
 		{
+			this(placeholders, keptPlaceholders, decants, goal, strata, design, elsewhere, null);
+		}
+
+		/** @param banked the experience the bank, pack and worn items hold, or null */
+		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal,
+			Strata strata, Architect.Design design, List<Elsewhere.Store> elsewhere, BankedXp.Report banked)
+		{
+			this.banked = banked == null ? BankedXp.Report.EMPTY : banked;
 			this.elsewhere = elsewhere == null ? Collections.emptyList() : elsewhere;
 			this.design = design == null ? Architect.Design.EMPTY : design;
 			this.placeholders = placeholders == null ? Collections.emptyList() : placeholders;
@@ -168,15 +179,16 @@ public class StewardPanel extends PluginPanel
 	private final ItemIcons icons;
 	private final Actions actions;
 	private final Crest crest = new Crest();
-	private final Segmented tabs = new Segmented(true, "Clear out", "Needed", "Kept", "Design");
+	private final Segmented tabs = new Segmented(true, "Clear out", "Needed", "Kept", "Design", "Banked");
 	private final CardLayout cards = new CardLayout();
 	private final JPanel content = new JPanel(cards);
 	private final JScrollPane clear = scroller();
 	private final JScrollPane needed = scroller();
 	private final JScrollPane kept = scroller();
 	private final JScrollPane design = scroller();
+	private final JScrollPane banked = scroller();
 	/** Which pages still show an older reckoning; a page is only rebuilt when it is looked at. */
-	private final boolean[] stale = {true, true, true, true};
+	private final boolean[] stale = {true, true, true, true, true};
 	/** The designed tab in view on the Design page. */
 	private int designTab;
 	/** Designed tabs copied for Bank Tags this session. */
@@ -216,6 +228,7 @@ public class StewardPanel extends PluginPanel
 		content.add(needed, TABS[1]);
 		content.add(kept, TABS[2]);
 		content.add(design, TABS[3]);
+		content.add(banked, TABS[4]);
 		add(content, BorderLayout.CENTER);
 		tabs.onChange(this::showTab);
 		refresh(true);
@@ -340,9 +353,13 @@ public class StewardPanel extends PluginPanel
 		{
 			rebuildKept();
 		}
-		else
+		else if (page == 3)
 		{
 			rebuildDesign();
+		}
+		else
+		{
+			rebuildBanked();
 		}
 	}
 
@@ -859,6 +876,18 @@ public class StewardPanel extends PluginPanel
 	}
 
 	/** The Bank Architect's tidy bank: how far the bank is from it, the tabs in miniature, and the copy for Bank Tags. */
+	private void rebuildBanked()
+	{
+		StackPanel stack = new StackPanel(8, 8);
+		if (waiting(stack))
+		{
+			replace(banked, stack);
+			return;
+		}
+		BankedPage.build(stack, extras.banked, names, icons);
+		replace(banked, stack);
+	}
+
 	private void rebuildDesign()
 	{
 		StackPanel stack = new StackPanel(8, 8);

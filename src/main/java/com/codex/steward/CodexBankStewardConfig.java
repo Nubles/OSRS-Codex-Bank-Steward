@@ -1,5 +1,6 @@
 package com.codex.steward;
 
+import com.codex.steward.core.BankedXp;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -32,6 +33,13 @@ public interface CodexBankStewardConfig extends Config
 		position = 2
 	)
 	String codex = "codex";
+
+	@ConfigSection(
+		name = "Banked experience",
+		description = "How the Banked page counts the experience your bank holds",
+		position = 3
+	)
+	String banked = "banked";
 
 	@Range(min = 14, max = 730)
 	@Units(" days")
@@ -176,5 +184,17 @@ public interface CodexBankStewardConfig extends Config
 	default boolean shareBank()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = "prayerMethod",
+		name = "Offer bones at",
+		description = "Where the Banked page counts your bones going: buried, the gilded altar, the Ectofuntus or the Wilderness chaos altar",
+		position = 0,
+		section = banked
+	)
+	default BankedXp.Method prayerMethod()
+	{
+		return BankedXp.Method.GILDED_ALTAR;
 	}
 }

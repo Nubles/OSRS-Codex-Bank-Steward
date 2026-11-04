@@ -3,6 +3,7 @@ package com.codex.steward;
 import com.codex.steward.core.Advice;
 import com.codex.steward.core.Architect;
 import com.codex.steward.core.BankItems;
+import com.codex.steward.core.BankedXp;
 import com.codex.steward.core.BankSnapshot;
 import com.codex.steward.core.BankView;
 import com.codex.steward.core.Catalog;
@@ -39,6 +40,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -65,6 +67,7 @@ import net.runelite.api.WorldType;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.widgets.Widget;
@@ -247,6 +250,16 @@ public class CodexBankStewardPlugin extends Plugin
 	private int layerFrom = -1;
 	/** The layers as last reckoned, for a click to pick one from; client thread only. */
 	private Strata lastStrata = Strata.EMPTY;
+	/** The account's experience in each banked skill, as last read this session. */
+	private final Map<Skill, Integer> experience = new EnumMap<>(Skill.class);
+	/** Whether {@link #experience} holds this account's figures. */
+	private boolean experienceRead;
+	/** What the bank, pack and worn items would give processed. */
+	private BankedXp.Report banked = BankedXp.Report.EMPTY;
+	/** The experience moved: the Banked page is worked out again, at most this often. */
+	private boolean bankedDirty;
+	private int lastBanked = -BANKED_TICKS;
+	private static final int BANKED_TICKS = 5;
 	/** The player's own bank tab open when Show in bank was pressed, or null; client thread only. */
 	private String tabBefore;
 
@@ -279,6 +292,9 @@ public class CodexBankStewardPlugin extends Plugin
 		layerView = BankView.EMPTY;
 		layerFrom = -1;
 		lastStrata = Strata.EMPTY;
+		experience.clear();
+		experienceRead = false;
+		banked = BankedXp.Report.EMPTY;
 		tagManager.registerTag(BankView.CLEAR_OUT, id -> clearView.contains(id, itemManager.canonicalize(id)));
 		tagManager.registerTag(BankView.TIDY, id -> tidyView.contains(id, id));
 		tagManager.registerTag(BankView.ELSEWHERE, id -> elsewhereView.contains(id, itemManager.canonicalize(id)));
@@ -357,6 +373,7 @@ public class CodexBankStewardPlugin extends Plugin
 			if (client.getGameState() == GameState.LOGGED_IN)
 			{
 				progressDirty = true;
+				readExperience();
 				observeHeld();
 				ItemContainer bank = client.getItemContainer(InventoryID.BANK);
 				if (bank != null && memory != null)
@@ -542,6 +559,13 @@ public class CodexBankStewardPlugin extends Plugin
 		reckonDirty = true;
 		placeholderIds = Collections.emptyMap();
 		oldPlaceholders = Collections.emptyList();
+		// The old account's levels are not this one's: read afresh, or wait for the login to send them.
+		experience.clear();
+		experienceRead = false;
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			readExperience();
+		}
 	}
 
 	/**
@@ -716,6 +740,56 @@ public class CodexBankStewardPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onStatChanged(StatChanged event)
+	{
+		if (BankedXp.SKILLS.contains(event.getSkill()) && client.getGameState() == GameState.LOGGED_IN)
+		{
+			Integer before = experience.put(event.getSkill(), event.getXp());
+			experienceRead = true;
+			bankedDirty |= before == null || before != event.getXp();
+		}
+	}
+
+	/** Reads the experience of every banked skill. Client thread only. */
+	private void readExperience()
+	{
+		for (Skill skill : BankedXp.SKILLS)
+		{
+			experience.put(skill, client.getSkillExperience(skill));
+		}
+		experienceRead = true;
+		bankedDirty = true;
+	}
+
+	/** Works out the Banked page from the bank as last seen, the pack and what is worn. */
+	private void banked()
+	{
+		bankedDirty = false;
+		lastBanked = ticks;
+		if (memory == null || !memory.hasSeenBank())
+		{
+			banked = BankedXp.Report.EMPTY;
+			return;
+		}
+		Map<Integer, Long> owned = new HashMap<>(memory.getBank());
+		heldCounts.forEach((id, q) -> owned.merge(id, q, Long::sum));
+		banked = BankedXp.of(owned, s -> experience.getOrDefault(s, 0), experienceRead, config.prayerMethod());
+		for (BankedXp.Skilled s : banked.getSkills())
+		{
+			for (BankedXp.Line l : s.getLines())
+			{
+				describe(l.getItemId());
+				l.getMissing().keySet().forEach(this::describe);
+				for (BankedXp.Use u : l.getUses())
+				{
+					u.getRecipe().getNeeds().keySet().forEach(this::describe);
+				}
+			}
+			s.getMissing().keySet().forEach(this::describe);
+		}
+	}
+
+	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
 		int id = event.getContainerId();
@@ -759,6 +833,12 @@ public class CodexBankStewardPlugin extends Plugin
 			lastProgressRead = ticks;
 			reckonDirty |= readProgress();
 			progressRead = true;
+		}
+		if (bankedDirty && !reckonDirty && ticks - lastBanked >= BANKED_TICKS)
+		{
+			// Training moves the experience every few ticks: only the Banked page is worked out again.
+			banked();
+			publish();
 		}
 		if (reckonDirty || ticks % REFRESH_TICKS == 0)
 		{
@@ -881,6 +961,14 @@ public class CodexBankStewardPlugin extends Plugin
 			ironman = iron;
 			changed = true;
 		}
+		for (Skill skill : BankedXp.SKILLS)
+		{
+			// Stats sent before the login finished are caught here.
+			int xp = client.getSkillExperience(skill);
+			Integer before = experience.put(skill, xp);
+			bankedDirty |= before == null || before != xp;
+		}
+		experienceRead = true;
 		Elsewhere.Access now = readAccess();
 		if (!now.equals(access))
 		{
@@ -1079,6 +1167,7 @@ public class CodexBankStewardPlugin extends Plugin
 			oldPlaceholders = still;
 		}
 		design = design(bank, going);
+		banked();
 		savingsGoal = ironman || savingsJson == null ? null
 			: SavingsGoal.read(gson, savingsJson, owned, this::price, plan.totalGain());
 		List<Integer> cleared = session == null ? null : ClearOut.cleared(session, bank, held);
@@ -1531,7 +1620,7 @@ public class CodexBankStewardPlugin extends Plugin
 			+ "|" + ironman + "|" + toGetKey(shownToGet)
 			+ "|" + (shownPlan == null ? 0 : shownPlan.totalGain()) + "|" + (session == null ? -1 : session.getStarted() + ":" + session.getItems().size())
 			+ "|" + cleared + "|" + extrasKey(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal) + "|" + releasable
-			+ "|" + Elsewhere.key(shownElsewhere);
+			+ "|" + Elsewhere.key(shownElsewhere) + "|" + (shown == null ? "" : banked.fingerprint());
 		if (key.equals(lastPublished))
 		{
 			return;
@@ -1543,7 +1632,7 @@ public class CodexBankStewardPlugin extends Plugin
 			StewardPanel.Clearing clearing = new StewardPanel.Clearing(shownPlan, session, cleared);
 			boolean iron = ironman;
 			StewardPanel.Extras extras = new StewardPanel.Extras(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal, strata, shownDesign,
-				shownElsewhere);
+				shownElsewhere, shown == null ? null : banked);
 			SwingUtilities.invokeLater(() -> target.update(shown, clearing, shownToGet, shownNames, name, state, alch, iron, extras));
 		}
 	}
