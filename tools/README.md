@@ -29,3 +29,10 @@
    ```
 
    The last argument lets it add a task with no items for each Navigator quest Quest Helper has no helper for yet, so goals naming those quests still match.
+
+5. Rebuild the STASH sets for **Better kept elsewhere** from the same RuneLite build. `units` prints each STASH unit with every part of its set; a unit whose set is a choice between whole sets (any Barrows set) is left out. Drop repeated units (two clues can share one) and write the rows to `src/main/resources/com/codex/steward/stash-units.json` under `"units"`:
+
+   ```bash
+   java -cp "build/tools:$CP" net.runelite.client.plugins.cluescrolls.clues.ExtractStash units > build/stash-units.json
+   ```
+

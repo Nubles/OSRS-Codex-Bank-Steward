@@ -29,6 +29,12 @@ Part of the **Codex** suite of RuneLite plugins. They share one look: warm ink, 
 
 **Tidy up.** Slots you can win back without selling anything: potions in several dose sizes that decanting would merge, and empty placeholders you no longer need.
 
+**Better kept elsewhere.** Slots won by keeping things where the game has a home for them, and only the homes this account can use. On a members' world, farming tools and compost go to the **Tool Leprechaun** at any farming patch, a whole stack at a time and only while it fits what the leprechaun holds (100 of each tool, one watering can, 1,000 of each compost). With 45 Farming, seeds, saplings and coral frags go to the **seed vault** in the Farming Guild. A clue's emote gear goes to its **STASH unit** when the unit is built (the Steward asks the game, the way RuneLite's clue plugin does) and your bank holds its whole set; a unit you have the Construction level for but have not built comes last, with what building it takes. Nothing a kit takes is ever suggested, and nothing an unfinished quest needs is locked in a STASH unit. **Show in bank** narrows the bank to what to take. The Steward cannot see inside a store, so it never claims one has room.
+
+<p align="center">
+  <img src="docs/screenshots/better-kept-elsewhere.png" width="225" alt="Better kept elsewhere">
+</p>
+
 **Design: Bank Architect.** The Steward designs your whole bank anew and shows it in the panel as a little bank, tab by tab, with each item's own picture. Every item gets one home: **Melee**, **Ranged** and **Magic** gear by its strongest bonus (weapons first, then head to feet, strongest first), **Supplies** (coins, food, potions with their doses side by side, runes), **Teleports** (jewellery, then tablets and scrolls), **Skilling** (tools and outfits, then ores, logs, herbs, seeds and the rest, each kind together), **Quests** (what unfinished quests still need, Navigator goals first), **Keepsakes** and **Sell** (the clear-out list, most valuable first). With Codex Quartermaster, a **Kits** tab holds each kit as a block four wide, the shape of your inventory, in the kit's own order. The panel says how many items you would have to drag to arrange the bank like this by hand, and how many already sit in order.
 
 You never have to drag them. **Copy for Bank Tags** puts the shown tab on the clipboard in Bank Tags' own import format, layout included; in the bank, right-click **New tag tab** and pick **Import tag tab**. The page then moves on to the next tab, and a tick marks each one copied. The tabs are named `codex kits`, `codex melee` and so on, so they never land on a tab you already have. Nothing in your bank moves: Bank Tags only shows your items this way.
@@ -49,6 +55,7 @@ Nothing is ever sold, dropped or withdrawn for you. The Steward only advises.
 - **Recent use grace** (14 days): a done-with item you used recently stays off the list.
 - **Value items at** (Auto): Grand Exchange prices, or high alchemy; Auto uses high alchemy on ironman accounts.
 - **Guard clue STASH gear** (on): gear a STASH unit wants is never called done with.
+- **Suggest other stores** (on): list what the Tool Leprechaun, the seed vault or a built STASH unit could hold instead.
 - **Show untradeable dust** (off): also list dusty untradeable items, apart and with a warning.
 - **Mark items in the bank** and **Summary at the bank** (both on).
 - **Keep kit and goal items** (on) and **Share bank with Codex** (on): see below.

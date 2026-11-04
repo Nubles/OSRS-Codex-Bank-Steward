@@ -143,6 +143,18 @@ public interface CodexBankStewardConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "betterElsewhere",
+		name = "Suggest other stores",
+		description = "List what the Tool Leprechaun, the seed vault or a built clue STASH unit could hold instead of your bank",
+		position = 5,
+		section = listing
+	)
+	default boolean betterElsewhere()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "untradeableDust",
 		name = "Show untradeable dust",
 		description = "Also list dusty untradeable items, apart and with a warning, never counted in the gold or slots",
