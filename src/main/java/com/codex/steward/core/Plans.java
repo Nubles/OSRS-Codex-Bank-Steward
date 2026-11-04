@@ -41,11 +41,25 @@ public final class Plans
 	{
 		private final String name;
 		private final Set<Integer> items;
+		/** The items each of the kit's supplies counts, in the kit's own order. */
+		private final List<List<Integer>> needs;
 
 		public Kit(String name, Set<Integer> items)
 		{
+			this(name, items, Collections.singletonList(new ArrayList<>(items)));
+		}
+
+		/** @param needs the items each supply counts, in the kit's order; together they are {@code items} */
+		public Kit(String name, Set<Integer> items, List<List<Integer>> needs)
+		{
 			this.name = name;
 			this.items = Collections.unmodifiableSet(new LinkedHashSet<>(items));
+			List<List<Integer>> copy = new ArrayList<>();
+			for (List<Integer> need : needs)
+			{
+				copy.add(Collections.unmodifiableList(new ArrayList<>(need)));
+			}
+			this.needs = Collections.unmodifiableList(copy);
 		}
 
 		public String getName()
@@ -58,10 +72,16 @@ public final class Plans
 			return items;
 		}
 
+		/** The items each supply counts, one list per supply in the order the kit lists them. */
+		public List<List<Integer>> getNeeds()
+		{
+			return needs;
+		}
+
 		@Override
 		public boolean equals(Object o)
 		{
-			return o instanceof Kit && name.equals(((Kit) o).name) && items.equals(((Kit) o).items);
+			return o instanceof Kit && name.equals(((Kit) o).name) && items.equals(((Kit) o).items) && needs.equals(((Kit) o).needs);
 		}
 
 		@Override
@@ -257,8 +277,10 @@ public final class Plans
 				continue;
 			}
 			Set<Integer> items = new LinkedHashSet<>();
+			List<List<Integer>> needs = new ArrayList<>();
 			for (JsonObject need : objects(kit, "needs"))
 			{
+				List<Integer> these = new ArrayList<>();
 				JsonElement map = need.get("items");
 				if (map != null && map.isJsonObject())
 				{
@@ -267,16 +289,18 @@ public final class Plans
 						Integer itemId = integer(key);
 						if (itemId != null && itemId > 0)
 						{
-							items.add(itemId);
+							these.add(itemId);
 						}
 					}
 				}
 				else
 				{
-					items.addAll(supplyItems(string(need, "supply")));
+					these.addAll(supplyItems(string(need, "supply")));
 				}
+				items.addAll(these);
+				needs.add(these);
 			}
-			add(out, name, items);
+			add(out, name, items, needs);
 		}
 		return out;
 	}
@@ -292,20 +316,24 @@ public final class Plans
 				continue;
 			}
 			Set<Integer> items = new LinkedHashSet<>();
+			List<List<Integer>> needs = new ArrayList<>();
 			for (JsonObject need : objects(kit, "needs"))
 			{
-				items.addAll(supplyItems(string(need, "supply")));
+				List<Integer> these = supplyItems(string(need, "supply"));
+				items.addAll(these);
+				needs.add(these);
 			}
-			add(out, name, items);
+			add(out, name, items, needs);
 		}
 		return out;
 	}
 
-	private static void add(List<Kit> out, String name, Set<Integer> items)
+	private static void add(List<Kit> out, String name, Set<Integer> items, List<List<Integer>> needs)
 	{
 		if (!items.isEmpty())
 		{
-			out.add(new Kit(name.length() > 40 ? name.substring(0, 40) : name, items));
+			needs.removeIf(List::isEmpty);
+			out.add(new Kit(name.length() > 40 ? name.substring(0, 40) : name, items, needs));
 		}
 	}
 

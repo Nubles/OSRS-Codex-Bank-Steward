@@ -29,6 +29,16 @@ Part of the **Codex** suite of RuneLite plugins. They share one look: warm ink, 
 
 **Tidy up.** Slots you can win back without selling anything: potions in several dose sizes that decanting would merge, and empty placeholders you no longer need.
 
+**Design: Bank Architect.** The Steward designs your whole bank anew and shows it in the panel as a little bank, tab by tab, with each item's own picture. Every item gets one home: **Melee**, **Ranged** and **Magic** gear by its strongest bonus (weapons first, then head to feet, strongest first), **Supplies** (coins, food, potions with their doses side by side, runes), **Teleports** (jewellery, then tablets and scrolls), **Skilling** (tools and outfits, then ores, logs, herbs, seeds and the rest, each kind together), **Quests** (what unfinished quests still need, Navigator goals first), **Keepsakes** and **Sell** (the clear-out list, most valuable first). With Codex Quartermaster, a **Kits** tab holds each kit as a block four wide, the shape of your inventory, in the kit's own order. The panel says how many items you would have to drag to arrange the bank like this by hand, and how many already sit in order.
+
+You never have to drag them. **Copy for Bank Tags** puts the shown tab on the clipboard in Bank Tags' own import format, layout included; in the bank, right-click **New tag tab** and pick **Import tag tab**. The page then moves on to the next tab, and a tick marks each one copied. The tabs are named `codex kits`, `codex melee` and so on, so they never land on a tab you already have. Nothing in your bank moves: Bank Tags only shows your items this way.
+
+<p align="center">
+  <img src="docs/screenshots/design-kits.png" width="225" alt="Design: the Kits tab">
+  <img src="docs/screenshots/design-melee.png" width="225" alt="Design: the Melee tab">
+  <img src="docs/screenshots/design-supplies.png" width="225" alt="Design: the Supplies tab">
+</p>
+
 **Bank marks and summary.** In the bank, done-with items carry a small gold diamond and dusty items a ring. The first time you open your bank each login, a chat line says what the list could free.
 
 Nothing is ever sold, dropped or withdrawn for you. The Steward only advises.
@@ -86,7 +96,7 @@ The shape only grows; a breaking change would get a new key. It is written a mom
 
 ## Rules posture
 
-Codex Bank Steward only reads what the game already shows you: your bank, inventory and worn items, quest and diary progress, and RuneLite's own item prices, plus what the Codex plugins above save in your RuneLite profile. The only thing it writes beyond its own memory is the shared bank, in its own config group. Show in bank only filters what the bank window displays, through RuneLite's own Bank Tags plugin, as a tag tab would. It does not click, change menus, or send anything over the network.
+Codex Bank Steward only reads what the game already shows you: your bank, inventory and worn items, quest and diary progress, and RuneLite's own item prices, plus what the Codex plugins above save in your RuneLite profile. The only thing it writes beyond its own memory is the shared bank, in its own config group. Show in bank only filters what the bank window displays, through RuneLite's own Bank Tags plugin, as a tag tab would. The Design page only puts text on your clipboard when you press its button; you import it into Bank Tags yourself. It does not click, change menus, or send anything over the network.
 
 ## Development
 

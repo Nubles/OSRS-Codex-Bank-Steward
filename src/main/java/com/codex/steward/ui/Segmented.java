@@ -97,6 +97,29 @@ public class Segmented extends JComponent
 		return Math.max(0, Math.min(labels.length - 1, x * labels.length / w));
 	}
 
+	/**
+	 * The strip's own font when every label fits its segment, else the plain font, else the small
+	 * one: four tabs in a narrow panel do not run into each other.
+	 */
+	private java.awt.Font fitting(Graphics2D g, float seg)
+	{
+		java.awt.Font[] fonts = large ? new java.awt.Font[]{getFont(), Theme.body(), Theme.small()} : new java.awt.Font[]{getFont()};
+		for (java.awt.Font f : fonts)
+		{
+			FontMetrics fm = g.getFontMetrics(f);
+			boolean fits = true;
+			for (String label : labels)
+			{
+				fits &= fm.stringWidth(label) <= seg - 8;
+			}
+			if (fits)
+			{
+				return f;
+			}
+		}
+		return fonts[fonts.length - 1];
+	}
+
 	@Override
 	protected void paintComponent(Graphics graphics)
 	{
@@ -119,7 +142,7 @@ public class Segmented extends JComponent
 		g.setColor(Theme.GOLD_BRIGHT);
 		g.fillRect(Math.round(x + seg * 0.3f), h - 4, Math.round(seg * 0.4f), 1);
 
-		g.setFont(getFont());
+		g.setFont(fitting(g, seg));
 		FontMetrics fm = g.getFontMetrics();
 		for (int i = 0; i < labels.length; i++)
 		{
