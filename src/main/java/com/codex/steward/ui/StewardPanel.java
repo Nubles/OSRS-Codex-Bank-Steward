@@ -6,6 +6,7 @@ import com.codex.steward.core.BankedXp;
 import com.codex.steward.core.BankView;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
+import com.codex.steward.core.Outgrown;
 import com.codex.steward.core.Elsewhere;
 import com.codex.steward.core.Placeholders;
 import com.codex.steward.core.Reckoning;
@@ -425,6 +426,7 @@ public class StewardPanel extends PluginPanel
 		}
 		if (clearing.session == null)
 		{
+			gear(stack);
 			tidy(stack);
 			elsewhere(stack);
 		}
@@ -446,6 +448,107 @@ public class StewardPanel extends PluginPanel
 		}
 		stack.add(Ui.wrapped("Click an item to keep it off the list. Nothing is ever sold or dropped for you.", Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
 		replace(clear, stack);
+	}
+
+	/** Kept gear shown row by row before the rest are counted by reason. */
+	static final int GEAR_ROWS = 8;
+
+	/**
+	 * Outgrown gear: what is safe to clear, with its worth and the slots it frees, then the gear the
+	 * check kept, each with its reason, pieces something beats first.
+	 */
+	private void gear(StackPanel stack)
+	{
+		List<Advice> outgrown = reckoning.getOutgrown();
+		List<Advice> kept = reckoning.getGearKept();
+		if (outgrown.isEmpty() && kept.isEmpty())
+		{
+			return;
+		}
+		stack.add(new SectionHeader("Outgrown gear", outgrown.isEmpty() ? null : Format.coins(value(outgrown))));
+		java.util.Set<Outgrown.Style> styles = styles(outgrown, kept);
+		if (outgrown.isEmpty())
+		{
+			stack.add(note("Nothing outgrown", styles.isEmpty()
+				? "Fight a little and the Steward learns which styles you use; until then no gear is called outgrown."
+				: "Nothing in your bank is beaten by gear you wear, for " + Outgrown.styles(styles) + "."));
+		}
+		else
+		{
+			stack.add(ClearOutCard.outgrown(outgrown.size(), value(outgrown), Outgrown.styles(styles)));
+			stack.add(rows(outgrown, true));
+			more(stack, outgrown);
+		}
+		if (!kept.isEmpty())
+		{
+			stack.add(new SectionHeader("Gear kept, and why", count(kept.size())));
+			JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
+			rows.setOpaque(false);
+			for (int i = 0; i < kept.size() && i < GEAR_ROWS; i++)
+			{
+				rows.add(gearRow(kept.get(i)));
+			}
+			stack.add(rows);
+			if (kept.size() > GEAR_ROWS)
+			{
+				stack.add(Ui.wrapped("And " + (kept.size() - GEAR_ROWS) + " more: " + reasons(kept.subList(GEAR_ROWS, kept.size())) + ".",
+					Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
+			}
+		}
+	}
+
+	/** The styles the gear was judged for, from any piece weighed on its stats. */
+	private static java.util.Set<Outgrown.Style> styles(List<Advice> outgrown, List<Advice> kept)
+	{
+		for (List<Advice> list : Arrays.asList(outgrown, kept))
+		{
+			for (Advice a : list)
+			{
+				if (a.getGear() != null && !a.getGear().getStyles().isEmpty())
+				{
+					return a.getGear().getStyles();
+				}
+			}
+		}
+		return Collections.emptySet();
+	}
+
+	/** One kept piece: its reason in a few words, and in full on hover. */
+	private AdviceRow gearRow(Advice a)
+	{
+		String action = actions == null ? null : "Keep it for good";
+		Runnable run = actions == null ? null : () -> actions.keep(a.getItemId(), true);
+		AdviceRow row = new AdviceRow(a, name(a.getItemId()), note(a, null), null, icons, action, run, alch);
+		row.setToolTipText("<html>" + Ui.escape(name(a.getItemId())) + "<br>" + Ui.escape(gearReason(a)) + "</html>");
+		return row;
+	}
+
+	private String gearReason(Advice a)
+	{
+		if (!a.getClaims().isEmpty())
+		{
+			return a.getClaims().get(0).longText() + ".";
+		}
+		return a.getGear() == null ? "" : Outgrown.longText(a.getGear(), this::name);
+	}
+
+	/** "23 the best you own, 9 untradeable": the rest of the kept gear counted by reason, most first. */
+	private String reasons(List<Advice> rest)
+	{
+		Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+		for (Advice a : rest)
+		{
+			String why = a.getClaims().isEmpty() && a.getGear() != null ? Outgrown.groupText(a.getGear()) : "kept for a plan";
+			counts.merge(why, 1, Integer::sum);
+		}
+		List<Map.Entry<String, Integer>> sorted = new ArrayList<>(counts.entrySet());
+		sorted.sort((x, y) -> y.getValue() - x.getValue());
+		StringBuilder out = new StringBuilder();
+		for (Map.Entry<String, Integer> e : sorted)
+		{
+			out.append(out.length() > 0 ? ", " : "").append(e.getValue()).append(' ').append(e.getKey());
+		}
+		return out.toString();
 	}
 
 	/** Slots won back without selling: potions to decant and empty placeholders to release. */
@@ -1053,6 +1156,12 @@ public class StewardPanel extends PluginPanel
 				run = () -> actions.keep(a.getItemId(), !isKept);
 			}
 			AdviceRow row = new AdviceRow(a, name(a.getItemId()), note(a, section), more(a), icons, action, run, alch);
+			String tip = row.getToolTipText();
+			if (a.getVerdict() == Advice.Verdict.OUTGROWN && tip != null && tip.endsWith("</html>"))
+			{
+				// Why it is outgrown, in full, under the price.
+				row.setToolTipText(tip.substring(0, tip.length() - 7) + "<br>" + Ui.escape(gearReason(a)) + "</html>");
+			}
 			ClearOut.Step step = stepFor(a);
 			if (step != null && step.getRoute() != ClearOut.Route.DROP)
 			{
@@ -1106,6 +1215,11 @@ public class StewardPanel extends PluginPanel
 				return a.getClaims().isEmpty() ? "Kept for a plan" : a.getClaims().get(0).shortText();
 			case OUTCLASSED:
 				return name(a.getBetter()) + " is faster";
+			case OUTGROWN:
+				return Outgrown.shortText(a.getGear(), this::name);
+			case GEAR_KEPT:
+				return !a.getClaims().isEmpty() ? a.getClaims().get(0).shortText()
+					: a.getGear() == null ? "Kept" : Outgrown.shortText(a.getGear(), this::name);
 			case NEEDED:
 				// Listed under one quest already; name another that wants it too.
 				for (String task : tasks)

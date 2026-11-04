@@ -62,6 +62,8 @@ public final class Reckoning
 	private final List<Advice> spared;
 	private final List<Advice> untradeableDust;
 	private final List<Advice> outclassed;
+	private final List<Advice> outgrown;
+	private final List<Advice> gearKept;
 	private final Map<String, List<Advice>> needed;
 	private final Map<String, List<String>> neededGoals;
 	private final long watchedDays;
@@ -70,10 +72,12 @@ public final class Reckoning
 	private final int tasksTotal;
 
 	private Reckoning(List<Advice> spent, List<Advice> dust, List<Advice> kept, List<Advice> spared, List<Advice> untradeableDust,
-		List<Advice> outclassed, Map<String, List<Advice>> needed, Map<String, List<String>> neededGoals, long watchedDays, int dustDays,
-		int tasksDone, int tasksTotal)
+		List<Advice> outclassed, List<Advice> outgrown, List<Advice> gearKept, Map<String, List<Advice>> needed,
+		Map<String, List<String>> neededGoals, long watchedDays, int dustDays, int tasksDone, int tasksTotal)
 	{
 		this.outclassed = outclassed;
+		this.outgrown = outgrown;
+		this.gearKept = gearKept;
 		this.spent = spent;
 		this.dust = dust;
 		this.kept = kept;
@@ -120,6 +124,39 @@ public final class Reckoning
 	public static Reckoning of(Catalog catalog, Memory memory, Map<Integer, Long> bank, Set<Integer> held, boolean[] done,
 		IntToLongFunction value, IntToLongFunction grandExchange, IntToLongFunction highAlchemy, IntPredicate tradeable,
 		Rules rules, Plans plans, Tools.Levels levels, long today)
+	{
+		return of(catalog, memory, bank, held, done, value, grandExchange, highAlchemy, tradeable, rules, plans, levels,
+			Collections.emptyMap(), today);
+	}
+
+	/**
+	 * Judges the bank's gear for the outgrown-gear check: which pieces something the player owns and
+	 * wears beats, and why each of the rest is kept.
+	 *
+	 * @param owned everything the player owns: bank, pack and worn
+	 */
+	public static Map<Integer, Outgrown.Verdict> judgeGear(Catalog catalog, Map<Integer, Long> bank, Set<Integer> owned,
+		Outgrown.Items items, Outgrown.Account account)
+	{
+		List<Task> tasks = catalog.getTasks();
+		return Outgrown.judge(bank.keySet(), owned, items, account, id ->
+		{
+			Set<Integer> naming = new HashSet<>();
+			for (Catalog.Need need : catalog.needsOf(id))
+			{
+				naming.add(need.getTask());
+			}
+			return names(tasks, naming);
+		}, catalog::isLasting);
+	}
+
+	/**
+	 * @param gear the outgrown-gear check's judgement of the bank's gear, from {@link #judgeGear};
+	 *     empty to leave gear to the other lists
+	 */
+	public static Reckoning of(Catalog catalog, Memory memory, Map<Integer, Long> bank, Set<Integer> held, boolean[] done,
+		IntToLongFunction value, IntToLongFunction grandExchange, IntToLongFunction highAlchemy, IntPredicate tradeable,
+		Rules rules, Plans plans, Tools.Levels levels, Map<Integer, Outgrown.Verdict> gear, long today)
 	{
 		Set<Integer> owned = new HashSet<>(bank.keySet());
 		owned.addAll(held);
@@ -182,6 +219,8 @@ public final class Reckoning
 		List<Advice> spared = new ArrayList<>();
 		List<Advice> untradeable = new ArrayList<>();
 		List<Advice> outclassed = new ArrayList<>();
+		List<Advice> outgrown = new ArrayList<>();
+		List<Advice> gearKept = new ArrayList<>();
 		Map<Integer, List<Advice>> neededByTask = new HashMap<>();
 		long watched = memory.hasSeenBank() ? Math.max(0, today - memory.getSince()) : 0;
 
@@ -246,16 +285,44 @@ public final class Reckoning
 				(keeping.isEmpty() ? spent : spared).add(advice);
 				continue;
 			}
+			// Nothing carried or worn, taken by a kit, wanted by a clue STASH unit or on the way to a goal
+			// is ever called outclassed or outgrown.
+			boolean free = canSell && !held.contains(id) && kits.isEmpty() && stash == null && !mentioned.containsKey(id);
+			Outgrown.Verdict piece = gear.get(id);
+			if (piece != null && piece.isOutgrown() && free)
+			{
+				// Outgrown says more than dusty, so it is listed here even when the piece is also old.
+				outgrown.add(new Advice(id, qty, each, true, Advice.Verdict.OUTGROWN, null, untouched).prices(ge, alch).gear(piece));
+				continue;
+			}
 			boolean old = watched >= rules.dustDays && untouched >= rules.dustDays && !catalog.isLasting(id);
 			if (!old)
 			{
-				// A slower tool beside a faster one the player can use. Never while carried or
-				// worn, nor when a kit takes it or a clue STASH unit wants it.
+				// A slower tool beside a faster one the player can use.
 				Integer better = Tools.outclassedBy(id, bestTools);
-				if (better != null && canSell && !held.contains(id) && kits.isEmpty() && stash == null
-					&& !mentioned.containsKey(id))
+				if (better != null && free)
 				{
 					outclassed.add(new Advice(id, qty, each, true, Advice.Verdict.OUTCLASSED, null, untouched).prices(ge, alch).better(better));
+				}
+				else if (piece != null)
+				{
+					List<Claim> keeping = new ArrayList<>(kits);
+					if (stash != null)
+					{
+						keeping.add(stash);
+					}
+					for (String goal : mentioned.getOrDefault(id, Collections.emptyList()))
+					{
+						keeping.add(new Claim(Claim.Kind.GOAL, goal));
+					}
+					Outgrown.Verdict why = piece;
+					if (piece.isOutgrown() && keeping.isEmpty())
+					{
+						// Beaten, but carried or worn right now.
+						why = new Outgrown.Verdict(Outgrown.Why.CARRIED, piece.getBetter(), null);
+					}
+					gearKept.add(new Advice(id, qty, each, canSell, Advice.Verdict.GEAR_KEPT, null, untouched).prices(ge, alch)
+						.claims(keeping).gear(why));
 				}
 				continue;
 			}
@@ -289,6 +356,9 @@ public final class Reckoning
 		kept.sort(byValue);
 		spared.sort(byValue);
 		outclassed.sort(byValue);
+		outgrown.sort(byValue);
+		// Pieces something beats come first: theirs is the reason worth reading.
+		gearKept.sort(Comparator.comparingInt((Advice a) -> a.getBetter() >= 0 || !a.getClaims().isEmpty() ? 0 : 1).thenComparing(byValue));
 		untradeable.sort(Comparator.comparingLong(Advice::getUntouchedDays).reversed().thenComparingInt(Advice::getItemId));
 
 		// Unfinished tasks on the way to a pinned goal first, then the rest in catalog order, each
@@ -315,7 +385,8 @@ public final class Reckoning
 		}
 		return new Reckoning(Collections.unmodifiableList(spent), Collections.unmodifiableList(dust),
 			Collections.unmodifiableList(kept), Collections.unmodifiableList(spared), Collections.unmodifiableList(untradeable),
-			Collections.unmodifiableList(outclassed), Collections.unmodifiableMap(needed), Collections.unmodifiableMap(neededGoals), watched, rules.dustDays, doneCount, tasks.size());
+			Collections.unmodifiableList(outclassed), Collections.unmodifiableList(outgrown), Collections.unmodifiableList(gearKept),
+			Collections.unmodifiableMap(needed), Collections.unmodifiableMap(neededGoals), watched, rules.dustDays, doneCount, tasks.size());
 	}
 
 	/** The pinned goals the tasks are on the way to, each once. */
@@ -444,10 +515,22 @@ public final class Reckoning
 		return outclassed;
 	}
 
+	/** Gear something the player owns and wears beats for every style they use, each with the piece that does. */
+	public List<Advice> getOutgrown()
+	{
+		return outgrown;
+	}
+
+	/** The bank's other gear the outgrown check judged, each with the reason it is kept; beaten pieces first. */
+	public List<Advice> getGearKept()
+	{
+		return gearKept;
+	}
+
 	/** What the Steward makes of an item in the bank now, or null when it is not in the bank. */
 	public Advice adviceFor(int itemId)
 	{
-		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust, outclassed))
+		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust, outclassed, outgrown, gearKept))
 		{
 			for (Advice a : list)
 			{
@@ -511,7 +594,7 @@ public final class Reckoning
 	public long fingerprint()
 	{
 		long h = 17;
-		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust, outclassed))
+		for (List<Advice> list : Arrays.asList(spent, dust, kept, spared, untradeableDust, outclassed, outgrown, gearKept))
 		{
 			h = h * 31 + list.size();
 			for (Advice a : list)
@@ -542,6 +625,7 @@ public final class Reckoning
 		h = h * 31 + a.getHighAlchemy();
 		h = h * 31 + a.getClaims().hashCode();
 		h = h * 31 + a.getBetter();
+		h = h * 31 + (a.getGear() == null ? -1 : a.getGear().getWhy().ordinal());
 		return h * 31 + a.getTasks().hashCode();
 	}
 
@@ -561,12 +645,16 @@ public final class Reckoning
 		{
 			total += a.getValue();
 		}
+		for (Advice a : outgrown)
+		{
+			total += a.getValue();
+		}
 		return total;
 	}
 
 	/** Bank slots the list would free. */
 	public int freedSlots()
 	{
-		return spent.size() + dust.size() + outclassed.size();
+		return spent.size() + dust.size() + outclassed.size() + outgrown.size();
 	}
 }

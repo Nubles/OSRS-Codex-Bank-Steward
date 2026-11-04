@@ -16,6 +16,14 @@ Part of the **Codex** suite of RuneLite plugins. They share one look: warm ink, 
 
 **Clear out.** The big figure is what the list could free, with the slots it frees. **Their work is done** lists items a finished quest or diary asked for, each with the quest it served. **Gathering dust** lists tradeable items that have not moved for 90 days (you can pick 14 days to two years). **Outclassed tools** lists a pickaxe or axe you own a faster one of and can use. Each item shows what it would sell for, or *Drop* when it can't be traded.
 
+**Outgrown gear.** Every piece of armour, weapon, amulet, ring and cape in your bank is checked against what else you own in the same slot. A piece is outgrown when something you own, and have been seen wearing, is at least as good on every bonus that counts for the styles you actually fight with, and better on one. The Steward learns your styles from the experience you gain (Attack and Strength for melee, Ranged, Magic) and the weapons you wield over the last 90 days, so a pure melee player's mystic hat can go while a mage's stays. Defences and prayer always count; a weapon is judged on its own best attack, its strength and its speed, and a two-handed weapon never replaces a one-handed one. The stats are RuneLite's own item stats, not a table the Steward keeps. **Safe to clear** shows what the outgrown pieces sell for and the slots they free; they join the clear-out plan and the bank marks.
+
+Nothing with a use beyond its numbers is ever called outgrown, and **Gear kept, and why** says which reason keeps each piece: worn in the last 90 days, carried now, untradeable, a special attack, a passive or set effect, an elemental staff's runes (all as the OSRS Wiki lists them), God Wars gear, an option of its own such as Rub or Teleport, a quest or diary that names it, a lasting reward, a kit, a clue STASH unit, or a piece on your Gear Roadmap savings goal. A piece beaten only by gear you have not worn yet is kept until you wear the better one. Before the Steward has seen you fight, nothing is outgrown.
+
+<p align="center">
+  <img src="docs/screenshots/outgrown.png" width="225" alt="Outgrown gear: safe to clear, and what is kept and why">
+</p>
+
 **Guided clear-out.** The plan says what the list brings by each route: **sell** on the Grand Exchange (after its 2% tax), **high alch** (after the nature rune) when that pays more, or **drop**. Ironman accounts alch or drop. Press **Begin the clear-out** and the page becomes a checklist, most valuable first. Each item is ticked off once it leaves your bank and pack, and a chat line says when you are done. **Show in bank** narrows the bank to just what is on the list, like a bank tag tab.
 
 <p align="center">
@@ -61,6 +69,7 @@ Nothing is ever sold, dropped or withdrawn for you. The Steward only advises.
 - **Recent use grace** (14 days): a done-with item you used recently stays off the list.
 - **Value items at** (Auto): Grand Exchange prices, or high alchemy; Auto uses high alchemy on ironman accounts.
 - **Guard clue STASH gear** (on): gear a STASH unit wants is never called done with.
+- **Find outgrown gear** (on): list gear something you own and wear beats for every style you use.
 - **Suggest other stores** (on): list what the Tool Leprechaun, the seed vault or a built STASH unit could hold instead.
 - **Offer bones at** (Gilded altar): where the Banked page counts your bones going.
 - **Show untradeable dust** (off): also list dusty untradeable items, apart and with a warning.
@@ -73,7 +82,7 @@ The Steward works on its own. With other Codex plugins installed, it reads what 
 
 - **[Codex Quartermaster](https://github.com/Nubles/OSRS-Codex-Quartermaster):** nothing a saved kit, or a preset you picked, takes is ever listed. 240 sharks untouched for months stay put, marked *Kit: Vorkath*.
 - **[Codex Navigator](https://github.com/Nubles/OSRS-Codex-Navigator):** quests on the way to a pinned goal lead the Needed page, and the page lists what those quests ask you to bring that you don't own yet, with what buying it costs.
-- **[Codex Gear Roadmap](https://github.com/Nubles/OSRS-Codex-Gear-Roadmap):** with a savings goal set, the Clear out page shows how far your coins go toward it and how far selling the list takes you.
+- **[Codex Gear Roadmap](https://github.com/Nubles/OSRS-Codex-Gear-Roadmap):** with a savings goal set, the Clear out page shows how far your coins go toward it and how far selling the list takes you, and no piece of that goal is ever called outgrown.
 
 The Steward also saves your bank as last seen, so other Codex plugins know what is in it without opening it: Quartermaster, Plunder Pilot, Pest Control Pilot and others. **Share bank with Codex** turns this off and removes the saved copy.
 

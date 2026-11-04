@@ -10,6 +10,7 @@ import com.codex.steward.core.Catalog;
 import com.codex.steward.core.Elsewhere;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
+import com.codex.steward.core.Outgrown;
 import com.codex.steward.core.Placeholders;
 import com.codex.steward.core.Plans;
 import com.codex.steward.core.Reckoning;
@@ -181,6 +182,10 @@ public class CodexBankStewardPlugin extends Plugin
 	private final Map<Integer, Boolean> drinkable = new HashMap<>();
 	/** What the Bank Architect knows of each item seen: read once, as items do not change. */
 	private final Map<Integer, Architect.Facts> facts = new HashMap<>();
+	/** What the outgrown-gear check knows of each item, read from the item manager once its stats are in. */
+	private final Map<Integer, Outgrown.Item> gearItems = new HashMap<>();
+	/** Experience in each combat skill as last read this login, so a gain can be told from the first read. */
+	private final Map<Skill, Integer> combatXp = new EnumMap<>(Skill.class);
 	/** The Bank Architect's tidy bank for the bank as last seen. */
 	private Architect.Design design = Architect.Design.EMPTY;
 	/** The bank's empty placeholders as last seen this login: the item each holds a slot for, to its own id. */
@@ -294,6 +299,7 @@ public class CodexBankStewardPlugin extends Plugin
 		lastStrata = Strata.EMPTY;
 		experience.clear();
 		experienceRead = false;
+		combatXp.clear();
 		banked = BankedXp.Report.EMPTY;
 		tagManager.registerTag(BankView.CLEAR_OUT, id -> clearView.contains(id, itemManager.canonicalize(id)));
 		tagManager.registerTag(BankView.TIDY, id -> tidyView.contains(id, id));
@@ -517,6 +523,7 @@ public class CodexBankStewardPlugin extends Plugin
 			summaryShown = false;
 			progressRead = false;
 			heldSeen = false;
+			combatXp.clear();
 			reckonDirty = true;
 			publish();
 		}
@@ -560,6 +567,7 @@ public class CodexBankStewardPlugin extends Plugin
 		placeholderIds = Collections.emptyMap();
 		oldPlaceholders = Collections.emptyList();
 		// The old account's levels are not this one's: read afresh, or wait for the login to send them.
+		combatXp.clear();
 		experience.clear();
 		experienceRead = false;
 		if (client.getGameState() == GameState.LOGGED_IN)
@@ -742,11 +750,32 @@ public class CodexBankStewardPlugin extends Plugin
 	@Subscribe
 	public void onStatChanged(StatChanged event)
 	{
+		fought(event.getSkill(), event.getXp());
 		if (BankedXp.SKILLS.contains(event.getSkill()) && client.getGameState() == GameState.LOGGED_IN)
 		{
 			Integer before = experience.put(event.getSkill(), event.getXp());
 			experienceRead = true;
 			bankedDirty |= before == null || before != event.getXp();
+		}
+	}
+
+	/**
+	 * Notes a combat style as used when its experience goes up: Attack and Strength for melee,
+	 * Ranged and Magic for theirs. The first figure read after login is only remembered.
+	 */
+	private void fought(Skill skill, int xp)
+	{
+		Outgrown.Style style = skill == Skill.ATTACK || skill == Skill.STRENGTH ? Outgrown.Style.MELEE
+			: skill == Skill.RANGED ? Outgrown.Style.RANGED : skill == Skill.MAGIC ? Outgrown.Style.MAGIC : null;
+		if (style == null || client.getGameState() != GameState.LOGGED_IN)
+		{
+			return;
+		}
+		Integer before = combatXp.put(skill, xp);
+		if (before != null && xp > before && memory != null && memory.observeStyle(style, today()))
+		{
+			unsaved = true;
+			reckonDirty = true;
 		}
 	}
 
@@ -1028,6 +1057,18 @@ public class CodexBankStewardPlugin extends Plugin
 		if (memory != null)
 		{
 			unsaved |= memory.observeHeld(now, today());
+			Set<Integer> worn = contents(client.getItemContainer(InventoryID.WORN)).keySet();
+			unsaved |= memory.observeWorn(worn, today());
+			for (int id : worn)
+			{
+				// A weapon wielded says which style the player fights with.
+				Outgrown.Item item = gearItem(id);
+				Outgrown.Style style = item == null ? null : Outgrown.styleOfWeapon(item);
+				if (style != null)
+				{
+					unsaved |= memory.observeStyle(style, today());
+				}
+			}
 		}
 		reckonDirty = true;
 	}
@@ -1117,12 +1158,28 @@ public class CodexBankStewardPlugin extends Plugin
 		boolean alch = byAlchemy();
 		IntToLongFunction byAlch = id -> alchPrice.getOrDefault(id, 0);
 		IntToLongFunction byGe = this::price;
-		reckoning = Reckoning.of(catalog, memory, bank, held, done, alch ? byAlch : byGe, byGe, byAlch,
-			id -> tradeable.getOrDefault(id, false), rules, plans, memory.getLevels(), today());
-		for (Advice a : reckoning.getOutclassed())
+		Map<Integer, Outgrown.Verdict> gear = Collections.emptyMap();
+		if (config.outgrownGear())
 		{
-			// The faster tool may be carried rather than banked; its name is shown with the slower.
-			describe(a.getBetter());
+			Set<Integer> ownedIds = new HashSet<>(bank.keySet());
+			ownedIds.addAll(held);
+			// Gear Roadmap's savings goal is the plan it shares: nothing on it is ever called outgrown.
+			Outgrown.Account account = new Outgrown.Account(memory.stylesUsed(today(), Outgrown.WORN_DAYS), memory.getWorn(), today(),
+				SavingsGoal.pieces(gson, savingsJson), SavingsGoal.name(gson, savingsJson));
+			gear = Reckoning.judgeGear(catalog, bank, ownedIds, this::gearItem, account);
+		}
+		reckoning = Reckoning.of(catalog, memory, bank, held, done, alch ? byAlch : byGe, byGe, byAlch,
+			id -> tradeable.getOrDefault(id, false), rules, plans, memory.getLevels(), gear, today());
+		for (List<Advice> list : Arrays.asList(reckoning.getOutclassed(), reckoning.getOutgrown(), reckoning.getGearKept()))
+		{
+			for (Advice a : list)
+			{
+				// The better piece may be carried rather than banked; its name is shown with the other.
+				if (a.getBetter() >= 0)
+				{
+					describe(a.getBetter());
+				}
+			}
 		}
 		Map<Integer, Long> owned = new HashMap<>(bank);
 		heldCounts.forEach((id, q) -> owned.merge(id, q, Long::sum));
@@ -1135,6 +1192,7 @@ public class CodexBankStewardPlugin extends Plugin
 		List<Advice> going = new ArrayList<>(reckoning.getSpent());
 		going.addAll(reckoning.getDust());
 		going.addAll(reckoning.getOutclassed());
+		going.addAll(reckoning.getOutgrown());
 		plan = ClearOut.plan(going, alch, itemManager.getItemPrice(ItemID.NATURERUNE));
 		// Potions already on the list are better sold than decanted.
 		Map<Integer, Long> keeping = new HashMap<>(bank);
@@ -1335,6 +1393,45 @@ public class CodexBankStewardPlugin extends Plugin
 		return f;
 	}
 
+	/**
+	 * What the outgrown-gear check knows of an item: its name, whether it trades or stacks, its
+	 * options, and its equipment stats from RuneLite's item manager. A wearable item whose stats have
+	 * not loaded yet is read again next time. Client thread.
+	 */
+	private Outgrown.Item gearItem(int itemId)
+	{
+		Outgrown.Item known = gearItems.get(itemId);
+		if (known != null)
+		{
+			return known;
+		}
+		Outgrown.Item read;
+		try
+		{
+			ItemComposition item = itemManager.getItemComposition(itemId);
+			String[] actions = item.getInventoryActions();
+			ItemStats stats = itemManager.getItemStats(itemId);
+			ItemEquipmentStats eq = stats == null || !stats.isEquipable() ? null : stats.getEquipment();
+			Outgrown.Stats s = eq == null ? null : new Outgrown.Stats(eq.getSlot(), eq.isTwoHanded(), eq.getAstab(), eq.getAslash(),
+				eq.getAcrush(), eq.getAmagic(), eq.getArange(), eq.getDstab(), eq.getDslash(), eq.getDcrush(), eq.getDmagic(),
+				eq.getDrange(), eq.getStr(), eq.getRstr(), eq.getMdmg(), eq.getPrayer(), eq.getAspeed());
+			read = new Outgrown.Item(item.getName(), item.isTradeable(), item.isStackable(), actions, s);
+			List<String> ops = actions == null ? Collections.emptyList() : Arrays.asList(actions);
+			if (s == null && (ops.contains("Wield") || ops.contains("Wear") || ops.contains("Equip")))
+			{
+				// Worn, but RuneLite's item stats are not in yet: not judged now, and read again later.
+				return read;
+			}
+		}
+		catch (RuntimeException e)
+		{
+			// An id no item has, left by a damaged save: never judged.
+			read = new Outgrown.Item("Item " + itemId, false, false, null, null);
+		}
+		gearItems.put(itemId, read);
+		return read;
+	}
+
 	private void describe(int itemId)
 	{
 		if (!names.containsKey(itemId))
@@ -1454,6 +1551,11 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			parts.add(outclassed + (outclassed == 1 ? " tool is" : " tools are") + " outclassed");
 		}
+		int outgrown = reckoning.getOutgrown().size();
+		if (outgrown > 0)
+		{
+			parts.add(outgrown + (outgrown == 1 ? " piece of gear is" : " pieces of gear are") + " outgrown");
+		}
 		StringBuilder what = new StringBuilder();
 		for (int i = 0; i < parts.size(); i++)
 		{
@@ -1528,6 +1630,10 @@ public class CodexBankStewardPlugin extends Plugin
 			for (Advice a : shown.getOutclassed())
 			{
 				marked.put(a.getItemId(), Advice.Verdict.OUTCLASSED);
+			}
+			for (Advice a : shown.getOutgrown())
+			{
+				marked.put(a.getItemId(), Advice.Verdict.OUTGROWN);
 			}
 		}
 		marks.setMarks(marked);

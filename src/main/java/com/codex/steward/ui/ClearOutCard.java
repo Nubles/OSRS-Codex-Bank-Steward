@@ -64,6 +64,21 @@ final class ClearOutCard
 	}
 
 	/**
+	 * What outgrown gear is safe to clear: its worth, the slots it frees, and the styles it was
+	 * judged for.
+	 */
+	static Card outgrown(int pieces, long worth, String styles)
+	{
+		Card card = new Card(new BorderLayout(0, 4));
+		card.accent(Theme.OUTCLASSED);
+		card.add(heading("Safe to clear", worth > 0 ? Format.coins(worth) : "", Theme.OUTCLASSED), BorderLayout.NORTH);
+		String slots = pieces == 1 ? "1 slot" : pieces + " slots";
+		card.add(Ui.wrapped((pieces == 1 ? "1 piece" : pieces + " pieces") + ", " + slots + " freed. Each is beaten on every bonus that counts for "
+			+ styles + " by gear you have worn.", Theme.small(), Theme.TEXT_MUTED, StewardPanel.WIDTH - 30), BorderLayout.CENTER);
+		return card;
+	}
+
+	/**
 	 * The upgrade Codex Gear Roadmap is saving for, and how far selling the list takes it: a bar
 	 * with the coins in gold and what the list adds in teal.
 	 */

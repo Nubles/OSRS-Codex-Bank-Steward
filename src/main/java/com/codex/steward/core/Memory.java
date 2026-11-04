@@ -33,6 +33,10 @@ public final class Memory
 	private int woodcutting;
 	/** The bank's items in the order they sit, by canonical id, as last seen; empty until seen. */
 	private List<Integer> order = new ArrayList<>();
+	/** Every piece seen worn, by canonical id, with the epoch day it was last worn. */
+	private Map<Integer, Long> worn = new HashMap<>();
+	/** Each combat style the player was seen using, by name, with the epoch day last used. */
+	private Map<String, Long> styles = new HashMap<>();
 
 	/** One item a clear-out set out to clear, as it was when the clear-out began. */
 	public static final class Planned
@@ -182,6 +186,20 @@ public final class Memory
 			}
 		}
 		order = kept;
+		worn = counts(worn, 0);
+		Map<String, Long> known = new HashMap<>();
+		if (styles != null)
+		{
+			for (Outgrown.Style style : Outgrown.Style.values())
+			{
+				Long day = styles.get(style.name());
+				if (day != null && day >= 0)
+				{
+					known.put(style.name(), day);
+				}
+			}
+		}
+		styles = known;
 		if (mining <= 0 || mining > MAX_LEVEL || woodcutting <= 0 || woodcutting > MAX_LEVEL)
 		{
 			mining = 0;
@@ -219,6 +237,8 @@ public final class Memory
 			since = today;
 		}
 		moved.replaceAll((id, day) -> day > latest ? today : day);
+		worn.replaceAll((id, day) -> day > latest ? today : day);
+		styles.replaceAll((style, day) -> day > latest ? today : day);
 		placeholders.replaceAll((id, day) -> day > latest ? today : day);
 	}
 
@@ -407,6 +427,59 @@ public final class Memory
 		{
 			keep.remove(id);
 		}
+	}
+
+	/**
+	 * Records the pieces worn now as worn today.
+	 *
+	 * @return true when anything changed
+	 */
+	public boolean observeWorn(Iterable<Integer> items, long today)
+	{
+		settle(today);
+		boolean changed = false;
+		for (Integer id : items)
+		{
+			if (id != null && id > 0)
+			{
+				Long before = worn.put(id, today);
+				changed |= before == null || before != today;
+			}
+		}
+		return changed;
+	}
+
+	/** Every piece seen worn, with the epoch day it was last worn. */
+	public Map<Integer, Long> getWorn()
+	{
+		return Collections.unmodifiableMap(worn);
+	}
+
+	/**
+	 * Records that the player fought in a style today: they gained its experience or wielded a weapon for it.
+	 *
+	 * @return true when it changed
+	 */
+	public boolean observeStyle(Outgrown.Style style, long today)
+	{
+		settle(today);
+		Long before = styles.put(style.name(), today);
+		return before == null || before != today;
+	}
+
+	/** The styles used within so many days of today. */
+	public Set<Outgrown.Style> stylesUsed(long today, int days)
+	{
+		Set<Outgrown.Style> used = java.util.EnumSet.noneOf(Outgrown.Style.class);
+		for (Outgrown.Style style : Outgrown.Style.values())
+		{
+			Long day = styles.get(style.name());
+			if (day != null && today - day < days)
+			{
+				used.add(style);
+			}
+		}
+		return used;
 	}
 
 	/** The levels that judge tools, as last read. */

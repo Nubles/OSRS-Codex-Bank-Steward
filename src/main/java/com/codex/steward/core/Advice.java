@@ -23,7 +23,11 @@ public final class Advice
 		 */
 		SPARED,
 		/** A slower skilling tool the player owns a faster one of, and has the level to use. */
-		OUTCLASSED
+		OUTCLASSED,
+		/** A piece of gear something the player owns and wears beats for every style they use. */
+		OUTGROWN,
+		/** A piece of gear the outgrown check kept, with its reason. */
+		GEAR_KEPT
 	}
 
 	private final int itemId;
@@ -37,6 +41,7 @@ public final class Advice
 	private long grandExchange;
 	private long highAlchemy;
 	private int better = -1;
+	private Outgrown.Verdict gear;
 
 	public Advice(int itemId, long quantity, long price, boolean tradeable, Verdict verdict, List<String> tasks, long untouchedDays)
 	{
@@ -116,7 +121,23 @@ public final class Advice
 		return highAlchemy;
 	}
 
-	/** For OUTCLASSED, the owned tool that makes it needless; -1 otherwise. */
+	/** For OUTGROWN and GEAR_KEPT, the outgrown check's judgement; null otherwise. */
+	public Outgrown.Verdict getGear()
+	{
+		return gear;
+	}
+
+	Advice gear(Outgrown.Verdict verdict)
+	{
+		gear = verdict;
+		if (verdict != null && verdict.getBetter() >= 0)
+		{
+			better = verdict.getBetter();
+		}
+		return this;
+	}
+
+	/** For OUTCLASSED and OUTGROWN, the owned piece that makes it needless; -1 otherwise. */
 	public int getBetter()
 	{
 		return better;

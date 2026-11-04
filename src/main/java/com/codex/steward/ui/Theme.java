@@ -132,7 +132,10 @@ public final class Theme
 			case SPARED:
 				return SPARED;
 			case OUTCLASSED:
+			case OUTGROWN:
 				return OUTCLASSED;
+			case GEAR_KEPT:
+				return SPARED;
 			default:
 				return KEPT;
 		}
