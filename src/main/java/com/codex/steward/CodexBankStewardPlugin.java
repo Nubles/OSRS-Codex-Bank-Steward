@@ -1,6 +1,7 @@
 package com.codex.steward;
 
 import com.codex.steward.core.Advice;
+import com.codex.steward.core.Architect;
 import com.codex.steward.core.BankItems;
 import com.codex.steward.core.BankSnapshot;
 import com.codex.steward.core.BankView;
@@ -25,6 +26,9 @@ import com.codex.steward.ui.StewardPanel;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.google.inject.Provides;
+import java.awt.HeadlessException;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -36,6 +40,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -75,7 +80,9 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.RuneScapeProfileChanged;
+import net.runelite.client.game.ItemEquipmentStats;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStats;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.bank.BankSearch;
@@ -164,6 +171,10 @@ public class CodexBankStewardPlugin extends Plugin
 	private final Map<Integer, Integer> alchPrice = new HashMap<>();
 	/** Whether the game offers to drink an item, which tells a potion from a charged amulet. */
 	private final Map<Integer, Boolean> drinkable = new HashMap<>();
+	/** What the Bank Architect knows of each item seen: read once, as items do not change. */
+	private final Map<Integer, Architect.Facts> facts = new HashMap<>();
+	/** The Bank Architect's tidy bank for the bank as last seen. */
+	private Architect.Design design = Architect.Design.EMPTY;
 	/** The bank's empty placeholders as last seen this login: the item each holds a slot for, to its own id. */
 	private Map<Integer, Integer> placeholderIds = Collections.emptyMap();
 	/** Empty placeholders worth releasing, and potions worth decanting, for the bank as last seen. */
@@ -288,6 +299,19 @@ public class CodexBankStewardPlugin extends Plugin
 			}
 
 			@Override
+			public void copyToClipboard(String text)
+			{
+				try
+				{
+					Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+				}
+				catch (HeadlessException | IllegalStateException e)
+				{
+					log.debug("Could not copy a Bank Tags tab", e);
+				}
+			}
+
+			@Override
 			public void showLayer(int from)
 			{
 				clientThread.invokeLater(() ->
@@ -322,6 +346,7 @@ public class CodexBankStewardPlugin extends Plugin
 				{
 					unsaved |= memory.observeBank(contents(bank), today());
 					unsaved |= memory.observePlaceholders(placeholders(bank), today());
+					unsaved |= memory.observeOrder(order(bank));
 					if (bankOpen())
 					{
 						bankSeen();
@@ -668,6 +693,7 @@ public class CodexBankStewardPlugin extends Plugin
 			}
 			unsaved |= memory.observeBank(contents(event.getItemContainer()), today());
 			unsaved |= memory.observePlaceholders(placeholders(event.getItemContainer()), today());
+			unsaved |= memory.observeOrder(order(event.getItemContainer()));
 			reckonDirty = true;
 			bankSeen();
 		}
@@ -870,6 +896,21 @@ public class CodexBankStewardPlugin extends Plugin
 		return BankItems.count(ids, quantities, this::isPlaceholder, itemManager::canonicalize);
 	}
 
+	/** The bank's items in the order they sit, by canonical id, placeholders left out. */
+	private List<Integer> order(ItemContainer bank)
+	{
+		List<Integer> out = new ArrayList<>();
+		for (Item item : bank.getItems())
+		{
+			int id = item.getId();
+			if (id >= 0 && item.getQuantity() > 0 && !isPlaceholder(id))
+			{
+				out.add(itemManager.canonicalize(id));
+			}
+		}
+		return out;
+	}
+
 	private boolean isPlaceholder(int itemId)
 	{
 		return itemManager.getItemComposition(itemId).getPlaceholderTemplateId() != -1;
@@ -971,6 +1012,7 @@ public class CodexBankStewardPlugin extends Plugin
 			}
 			oldPlaceholders = still;
 		}
+		design = design(bank, going);
 		savingsGoal = ironman || savingsJson == null ? null
 			: SavingsGoal.read(gson, savingsJson, owned, this::price, plan.totalGain());
 		List<Integer> cleared = session == null ? null : ClearOut.cleared(session, bank, held);
@@ -1037,6 +1079,85 @@ public class CodexBankStewardPlugin extends Plugin
 			.type(ChatMessageType.CONSOLE)
 			.runeLiteFormattedMessage(line.append(ChatColorType.NORMAL).append(".").build())
 			.build());
+	}
+
+	/**
+	 * The Bank Architect's tidy bank: kits from Quartermaster, what unfinished quests need (goals
+	 * first), what the clear-out lists (in its order), and the bank as it sits.
+	 */
+	private Architect.Design design(Map<Integer, Long> bank, List<Advice> going)
+	{
+		Map<String, List<Integer>> needed = new LinkedHashMap<>();
+		Map<String, List<Integer>> later = new LinkedHashMap<>();
+		for (Map.Entry<String, List<Advice>> e : reckoning.getNeeded().entrySet())
+		{
+			List<Integer> ids = new ArrayList<>();
+			for (Advice a : e.getValue())
+			{
+				ids.add(a.getItemId());
+			}
+			(reckoning.goalsOf(e.getKey()).isEmpty() ? later : needed).put(e.getKey(), ids);
+		}
+		needed.putAll(later);
+		List<Integer> sell = new ArrayList<>();
+		for (ClearOut.Step step : plan.getSteps())
+		{
+			sell.add(step.getAdvice().getItemId());
+		}
+		for (Advice a : going)
+		{
+			if (!sell.contains(a.getItemId()))
+			{
+				sell.add(a.getItemId());
+			}
+		}
+		sell.removeIf(memory::isKept);
+		return Architect.design(new Architect.Inputs()
+			.bank(bank)
+			.facts(this::facts)
+			.kits(plans.getKits())
+			.needed(needed)
+			.sell(sell)
+			.order(memory.getOrder()));
+	}
+
+	/** What the Bank Architect needs to know of an item, read from the item manager once. Client thread. */
+	private Architect.Facts facts(int itemId)
+	{
+		Architect.Facts known = facts.get(itemId);
+		if (known != null)
+		{
+			return known;
+		}
+		Architect.Facts f;
+		try
+		{
+			ItemComposition item = itemManager.getItemComposition(itemId);
+			String[] actions = item.getInventoryActions();
+			List<String> ops = actions == null ? Collections.emptyList() : Arrays.asList(actions);
+			ItemStats stats = itemManager.getItemStats(itemId);
+			ItemEquipmentStats eq = stats == null || !stats.isEquipable() ? null : stats.getEquipment();
+			if (eq == null)
+			{
+				f = new Architect.Facts(item.getName(), item.isTradeable(), Architect.Facts.NO_SLOT, 0, 0, 0, 0,
+					ops.contains("Eat"), ops.contains("Drink"));
+			}
+			else
+			{
+				int melee = Math.max(eq.getAstab(), Math.max(eq.getAslash(), eq.getAcrush())) + eq.getStr();
+				int ranged = eq.getArange() + eq.getRstr();
+				int magic = eq.getAmagic() + Math.round(eq.getMdmg());
+				int defence = eq.getDstab() + eq.getDslash() + eq.getDcrush() + eq.getDmagic() + eq.getDrange() + eq.getPrayer();
+				f = new Architect.Facts(item.getName(), item.isTradeable(), eq.getSlot(), melee, ranged, magic, defence, false, false);
+			}
+		}
+		catch (RuntimeException e)
+		{
+			// An id no item has, left by a damaged save.
+			f = Architect.Facts.item("Item " + itemId, false);
+		}
+		facts.put(itemId, f);
+		return f;
 	}
 
 	private void describe(int itemId)
@@ -1312,7 +1433,8 @@ public class CodexBankStewardPlugin extends Plugin
 			}
 		}
 		strata.getOldest().forEach(o -> describe(o.getItemId()));
-		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + strata.fingerprint() + "|" + state + "|" + name + "|" + alch
+		Architect.Design shownDesign = shown == null ? Architect.Design.EMPTY : design;
+		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + strata.fingerprint() + "|" + shownDesign.fingerprint() + "|" + state + "|" + name + "|" + alch
 			+ "|" + ironman + "|" + toGetKey(shownToGet)
 			+ "|" + (shownPlan == null ? 0 : shownPlan.totalGain()) + "|" + (session == null ? -1 : session.getStarted() + ":" + session.getItems().size())
 			+ "|" + cleared + "|" + extrasKey(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal) + "|" + releasable;
@@ -1326,7 +1448,7 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			StewardPanel.Clearing clearing = new StewardPanel.Clearing(shownPlan, session, cleared);
 			boolean iron = ironman;
-			StewardPanel.Extras extras = new StewardPanel.Extras(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal, strata);
+			StewardPanel.Extras extras = new StewardPanel.Extras(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal, strata, shownDesign);
 			SwingUtilities.invokeLater(() -> target.update(shown, clearing, shownToGet, shownNames, name, state, alch, iron, extras));
 		}
 	}

@@ -1,6 +1,7 @@
 package com.codex.steward.ui;
 
 import com.codex.steward.core.Advice;
+import com.codex.steward.core.Architect;
 import com.codex.steward.core.BankView;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
@@ -30,14 +31,14 @@ import javax.swing.border.EmptyBorder;
 import net.runelite.client.ui.PluginPanel;
 
 /**
- * The Steward's side panel: the crest, then three pages. Clear out lists what can go, Needed
- * lists what unfinished quests and diaries still hold back, and Kept lists what the player chose
- * to keep off the list.
+ * The Steward's side panel: the crest, then four pages. Clear out lists what can go, Needed
+ * lists what unfinished quests and diaries still hold back, Kept lists what the player chose
+ * to keep off the list, and Design lays the bank out anew as Bank Tags tabs.
  */
 public class StewardPanel extends PluginPanel
 {
 	static final int WIDTH = 200;
-	private static final String[] TABS = {"clear", "needed", "kept"};
+	private static final String[] TABS = {"clear", "needed", "kept", "design"};
 	private static final int ROWS = 60;
 
 	/** What the panel has to show. */
@@ -76,6 +77,11 @@ public class StewardPanel extends PluginPanel
 		default void showLayer(int from)
 		{
 		}
+
+		/** Puts text on the system clipboard: a Bank Tags tab to import. */
+		default void copyToClipboard(String text)
+		{
+		}
 	}
 
 	/** The guided clear-out: the plan for the list now, and the clear-out under way, if any. */
@@ -108,6 +114,7 @@ public class StewardPanel extends PluginPanel
 		final List<Tidy.Decant> decants;
 		final SavingsGoal goal;
 		final Strata strata;
+		final Architect.Design design;
 
 		/**
 		 * @param placeholders empty placeholders worth releasing
@@ -124,6 +131,14 @@ public class StewardPanel extends PluginPanel
 		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal,
 			Strata strata)
 		{
+			this(placeholders, keptPlaceholders, decants, goal, strata, null);
+		}
+
+		/** @param design the Bank Architect's tidy bank, or null */
+		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal,
+			Strata strata, Architect.Design design)
+		{
+			this.design = design == null ? Architect.Design.EMPTY : design;
 			this.placeholders = placeholders == null ? Collections.emptyList() : placeholders;
 			this.keptPlaceholders = keptPlaceholders == null ? Collections.emptyList() : keptPlaceholders;
 			this.decants = decants == null ? Collections.emptyList() : decants;
@@ -141,14 +156,21 @@ public class StewardPanel extends PluginPanel
 	private final ItemIcons icons;
 	private final Actions actions;
 	private final Crest crest = new Crest();
-	private final Segmented tabs = new Segmented(true, "Clear out", "Needed", "Kept");
+	private final Segmented tabs = new Segmented(true, "Clear out", "Needed", "Kept", "Design");
 	private final CardLayout cards = new CardLayout();
 	private final JPanel content = new JPanel(cards);
 	private final JScrollPane clear = scroller();
 	private final JScrollPane needed = scroller();
 	private final JScrollPane kept = scroller();
+	private final JScrollPane design = scroller();
 	/** Which pages still show an older reckoning; a page is only rebuilt when it is looked at. */
-	private final boolean[] stale = {true, true, true};
+	private final boolean[] stale = {true, true, true, true};
+	/** The designed tab in view on the Design page. */
+	private int designTab;
+	/** Designed tabs copied for Bank Tags this session. */
+	private final Set<String> copied = new HashSet<>();
+	/** The tag copied last, or null. */
+	private String lastCopied;
 
 	private Reckoning reckoning;
 	private Clearing clearing = new Clearing(null, null, null);
@@ -181,6 +203,7 @@ public class StewardPanel extends PluginPanel
 		content.add(clear, TABS[0]);
 		content.add(needed, TABS[1]);
 		content.add(kept, TABS[2]);
+		content.add(design, TABS[3]);
 		add(content, BorderLayout.CENTER);
 		tabs.onChange(this::showTab);
 		refresh(true);
@@ -301,9 +324,13 @@ public class StewardPanel extends PluginPanel
 		{
 			rebuildNeeded();
 		}
-		else
+		else if (page == 2)
 		{
 			rebuildKept();
+		}
+		else
+		{
+			rebuildDesign();
 		}
 	}
 
@@ -722,6 +749,110 @@ public class StewardPanel extends PluginPanel
 		{
 			stack.add(Ui.wrapped(tail.toString().trim(), Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
 		}
+	}
+
+	/** The Bank Architect's tidy bank: how far the bank is from it, the tabs in miniature, and the copy for Bank Tags. */
+	private void rebuildDesign()
+	{
+		StackPanel stack = new StackPanel(8, 8);
+		if (waiting(stack))
+		{
+			replace(design, stack);
+			return;
+		}
+		Architect.Design d = extras.design;
+		if (d.isEmpty())
+		{
+			stack.add(note("Nothing to lay out yet", "Once the Steward has seen your bank, this page designs it anew as Bank Tags tabs."));
+			replace(design, stack);
+			return;
+		}
+		List<Architect.Tab> list = d.getTabs();
+		designTab = Math.max(0, Math.min(list.size() - 1, designTab));
+		Architect.Tab tab = list.get(designTab);
+
+		JPanel tiles = new JPanel(new GridLayout(1, 2, 6, 6));
+		tiles.setOpaque(false);
+		tiles.add(new StatTile(String.valueOf(list.size()), "Tabs", Format.amount(d.getTotal()) + (d.getTotal() == 1 ? " item" : " items"), Theme.GOLD));
+		int moves = d.getMoves();
+		tiles.add(new StatTile(moves < 0 ? "-" : Format.amount(moves), "Moves by hand",
+			moves < 0 ? "Open your bank" : StrataCard.share(d.getInPlace(), d.getCompared()) + " in place",
+			moves < 0 ? Theme.TEXT_MUTED : ArchitectCard.movesColor(moves, d.getCompared())));
+		stack.add(tiles);
+
+		stack.add(new ArchitectCard(d, designTab, copied, icons, names, actions == null ? null : i ->
+		{
+			designTab = i;
+			redraw(3);
+		}));
+		if (actions != null)
+		{
+			stack.add(ClearOutCard.buttons(new CodexButton("Copy " + tab.getPurpose().getLabel() + " for Bank Tags", true, () -> copy(tab))));
+		}
+		String how = lastCopied != null
+			? "Copied the " + lastCopied + " tab. In the bank, right-click New tag tab and pick Import tag tab."
+			: "Copy a tab, then in the bank right-click New tag tab and pick Import tag tab. One tab at a time; a tick marks each one copied.";
+		stack.add(Ui.wrapped(how, Theme.small(), lastCopied != null ? Theme.TEAL : Theme.TEXT_MUTED, WIDTH - 20));
+		String moved = moves < 0
+			? "Nothing in your bank moves: Bank Tags only shows your items this way."
+			: moves == 0 ? "Nothing in your bank moves, and the bank already sits in this order."
+			: "Nothing in your bank moves: Bank Tags only shows your items this way. Arranging the bank itself to match would take "
+				+ Format.amount(moves) + (moves == 1 ? " drag." : " drags.");
+		stack.add(Ui.wrapped(moved, Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
+		replace(design, stack);
+	}
+
+	/** Copies a designed tab for Bank Tags and moves on to the next one not yet copied. */
+	private void copy(Architect.Tab tab)
+	{
+		if (actions == null)
+		{
+			return;
+		}
+		actions.copyToClipboard(tab.export());
+		copied.add(tab.getTag());
+		lastCopied = tab.getPurpose().getLabel();
+		List<Architect.Tab> list = extras.design.getTabs();
+		for (int k = 1; k <= list.size(); k++)
+		{
+			int next = (designTab + k) % list.size();
+			if (!copied.contains(list.get(next).getTag()))
+			{
+				designTab = next;
+				break;
+			}
+		}
+		redraw(3);
+	}
+
+	/** Rebuilds one page now. */
+	private void redraw(int page)
+	{
+		stale[page] = true;
+		refresh(true);
+	}
+
+	/** Copies the designed tab in view, as its button does. */
+	void copyShown()
+	{
+		List<Architect.Tab> list = extras.design.getTabs();
+		if (!list.isEmpty())
+		{
+			copy(list.get(Math.max(0, Math.min(list.size() - 1, designTab))));
+		}
+	}
+
+	/** The Design page's tab in view, for tests. */
+	int designTab()
+	{
+		return designTab;
+	}
+
+	/** Opens a designed tab on the Design page. */
+	public void showDesignTab(int index)
+	{
+		designTab = index;
+		redraw(3);
 	}
 
 	private void rebuildKept()

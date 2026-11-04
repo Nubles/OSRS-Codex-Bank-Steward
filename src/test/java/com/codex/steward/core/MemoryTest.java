@@ -44,4 +44,16 @@ public class MemoryTest
 		memory.observeBank(back, 20);
 		assertEquals(20, memory.lastMoved(7));
 	}
+
+	@Test
+	public void theBankOrderIsRememberedEachItemOnceAndDamageIsDropped()
+	{
+		Memory memory = new Memory();
+		assertTrue(memory.observeOrder(java.util.Arrays.asList(995, 4151, 995, -1, 385)));
+		assertEquals(java.util.Arrays.asList(995, 4151, 385), memory.getOrder());
+		assertFalse(memory.observeOrder(java.util.Arrays.asList(995, 4151, 385)));
+		Memory read = Memory.read(new com.google.gson.Gson(), "{\"since\":1,\"order\":[995,null,-4,4151,995]}");
+		assertEquals(java.util.Arrays.asList(995, 4151), read.getOrder());
+		assertTrue(Memory.read(new com.google.gson.Gson(), "{\"since\":1}").getOrder().isEmpty());
+	}
 }

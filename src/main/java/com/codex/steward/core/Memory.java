@@ -31,6 +31,8 @@ public final class Memory
 	/** Mining and Woodcutting levels as last read, so tools are judged while logged out; 0 until read. */
 	private int mining;
 	private int woodcutting;
+	/** The bank's items in the order they sit, by canonical id, as last seen; empty until seen. */
+	private List<Integer> order = new ArrayList<>();
 
 	/** One item a clear-out set out to clear, as it was when the clear-out began. */
 	public static final class Planned
@@ -167,6 +169,19 @@ public final class Memory
 			session.items.removeIf(p -> p == null || p.item <= 0 || p.qty <= 0);
 			session.items.forEach(p -> p.gain = Math.max(0, p.gain));
 		}
+		List<Integer> kept = new ArrayList<>();
+		if (order != null)
+		{
+			Set<Integer> seen = new HashSet<>();
+			for (Integer id : order)
+			{
+				if (id != null && id > 0 && seen.add(id))
+				{
+					kept.add(id);
+				}
+			}
+		}
+		order = kept;
 		if (mining <= 0 || mining > MAX_LEVEL || woodcutting <= 0 || woodcutting > MAX_LEVEL)
 		{
 			mining = 0;
@@ -259,6 +274,36 @@ public final class Memory
 			changed = true;
 		}
 		return changed;
+	}
+
+	/** The bank's items in the order they sit, as last seen. */
+	public List<Integer> getOrder()
+	{
+		return Collections.unmodifiableList(order);
+	}
+
+	/**
+	 * Records the order the bank's items sit in, each item once, by canonical id.
+	 *
+	 * @return true when it changed
+	 */
+	public boolean observeOrder(List<Integer> now)
+	{
+		List<Integer> next = new ArrayList<>();
+		Set<Integer> seen = new HashSet<>();
+		for (Integer id : now)
+		{
+			if (id != null && id > 0 && seen.add(id))
+			{
+				next.add(id);
+			}
+		}
+		if (next.equals(order))
+		{
+			return false;
+		}
+		order = next;
+		return true;
 	}
 
 	/**
