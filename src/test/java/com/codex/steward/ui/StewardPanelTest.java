@@ -3,6 +3,7 @@ package com.codex.steward.ui;
 import static org.junit.Assert.assertEquals;
 import com.codex.steward.core.Architect;
 import com.codex.steward.core.Catalog;
+import com.codex.steward.core.Elsewhere;
 import com.codex.steward.core.Memory;
 import com.codex.steward.core.Reckoning;
 import java.util.ArrayList;
@@ -87,5 +88,23 @@ public class StewardPanelTest
 		assertEquals(design.getTabs().get(2).export(), clipboard.get(2));
 		// Every tab copied: the page stays where it is.
 		assertEquals(2, panel.designTab());
+	}
+
+	@Test
+	public void theClearOutPageShowsWhatIsBetterKeptElsewhere()
+	{
+		Map<Integer, Long> bank = new HashMap<>();
+		bank.put(5341, 1L);
+		bank.put(5295, 20L);
+		Memory memory = new Memory();
+		memory.observeBank(bank, 100);
+		Reckoning reckoning = Reckoning.of(new Catalog(new Catalog.Data()), memory, bank, Collections.emptySet(), new boolean[0],
+			id -> 0, id -> true, new Reckoning.Rules(90, 14), 110);
+		List<Elsewhere.Store> stores = Elsewhere.plan(bank, new Elsewhere.Access(true, 50, 1, null), Collections.emptyList(), null, null);
+		assertEquals(2, Elsewhere.freed(stores));
+		StewardPanel panel = new StewardPanel((id, done) -> null, null);
+		panel.update(reckoning, null, Collections.emptyList(), Collections.emptyMap(), "Gilded Owl", StewardPanel.State.READY, false, false,
+			new StewardPanel.Extras(null, null, null, null, null, null, stores));
+		panel.showTab(0);
 	}
 }

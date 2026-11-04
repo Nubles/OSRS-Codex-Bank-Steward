@@ -22,6 +22,8 @@ public final class BankView
 	public static final String CLEAR_OUT = "steward";
 	/** Potions to decant and empty placeholders to release. */
 	public static final String TIDY = "steward-tidy";
+	/** Items with a better home than the bank: the Tool Leprechaun, the seed vault, a STASH unit. */
+	public static final String ELSEWHERE = "steward-elsewhere";
 	/** One layer of the bank by age, the one last clicked on the layers card. */
 	public static final String LAYER = "steward-layer";
 
@@ -103,10 +105,16 @@ public final class BankView
 		return ids.isEmpty() ? EMPTY : new BankView(ids);
 	}
 
+	/** Everything to take to another store. */
+	public static BankView elsewhere(Collection<Integer> items)
+	{
+		return items == null || items.isEmpty() ? EMPTY : new BankView(new HashSet<>(items));
+	}
+
 	/** Whether a bank tag is one of the Steward's views. */
 	public static boolean isOurs(String tag)
 	{
-		return CLEAR_OUT.equals(tag) || TIDY.equals(tag) || LAYER.equals(tag);
+		return CLEAR_OUT.equals(tag) || TIDY.equals(tag) || LAYER.equals(tag) || ELSEWHERE.equals(tag);
 	}
 
 	/**

@@ -6,6 +6,7 @@ import com.codex.steward.core.BankItems;
 import com.codex.steward.core.BankSnapshot;
 import com.codex.steward.core.BankView;
 import com.codex.steward.core.Catalog;
+import com.codex.steward.core.Elsewhere;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
 import com.codex.steward.core.Placeholders;
@@ -58,7 +59,9 @@ import net.runelite.api.ItemContainer;
 import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
+import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
+import net.runelite.api.WorldType;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
@@ -111,6 +114,8 @@ public class CodexBankStewardPlugin extends Plugin
 	/** Past this a save is far bigger than any the Steward writes, and is not copied aside. */
 	private static final int BACKUP_MAX = 1_000_000;
 	private static final String DATA = "steward-data.json";
+	/** Every clue STASH unit and the set it holds. */
+	private static final String STASH_UNITS = "stash-units.json";
 	/**
 	 * Ticks between reading quest and diary progress while varbits are changing. Varbits change
 	 * all the time in combat and skilling, and a read runs a client script for every quest.
@@ -180,6 +185,12 @@ public class CodexBankStewardPlugin extends Plugin
 	/** Empty placeholders worth releasing, and potions worth decanting, for the bank as last seen. */
 	private List<Placeholders.Line> oldPlaceholders = Collections.emptyList();
 	private List<Tidy.Decant> decants = Collections.emptyList();
+	/** Every clue STASH unit and its set, bundled. */
+	private List<Elsewhere.Unit> stashUnits = Collections.emptyList();
+	/** What the account can use as other stores, read with quest progress; unknown until read this login. */
+	private Elsewhere.Access access = Elsewhere.Access.UNKNOWN;
+	/** What in the bank has a better home, for the bank as last seen. */
+	private List<Elsewhere.Store> elsewhere = Collections.emptyList();
 	/** Codex Gear Roadmap's savings goal as it saved it, or null; and how far the list takes it. */
 	private String savingsJson;
 	private SavingsGoal savingsGoal;
@@ -229,6 +240,7 @@ public class CodexBankStewardPlugin extends Plugin
 	/** The lists the bank can be shown filtered to, as last published; read by Bank Tags on the client thread. */
 	private BankView clearView = BankView.EMPTY;
 	private BankView tidyView = BankView.EMPTY;
+	private BankView elsewhereView = BankView.EMPTY;
 	/** The layer of the bank by age last clicked on the layers card, and its items as last reckoned. */
 	private BankView layerView = BankView.EMPTY;
 	/** Where that layer starts, in days untouched; -1 for the deepest, before any is clicked. */
@@ -248,6 +260,9 @@ public class CodexBankStewardPlugin extends Plugin
 	protected void startUp()
 	{
 		catalog = loadCatalog();
+		stashUnits = loadStashUnits();
+		access = Elsewhere.Access.UNKNOWN;
+		elsewhere = Collections.emptyList();
 		lastPublished = null;
 		// The plugin is the same object when turned off and on again: what was read last time is not this login's.
 		progressRead = false;
@@ -260,11 +275,13 @@ public class CodexBankStewardPlugin extends Plugin
 		lastProgressRead = ticks - PROGRESS_TICKS;
 		clearView = BankView.EMPTY;
 		tidyView = BankView.EMPTY;
+		elsewhereView = BankView.EMPTY;
 		layerView = BankView.EMPTY;
 		layerFrom = -1;
 		lastStrata = Strata.EMPTY;
 		tagManager.registerTag(BankView.CLEAR_OUT, id -> clearView.contains(id, itemManager.canonicalize(id)));
 		tagManager.registerTag(BankView.TIDY, id -> tidyView.contains(id, id));
+		tagManager.registerTag(BankView.ELSEWHERE, id -> elsewhereView.contains(id, itemManager.canonicalize(id)));
 		tagManager.registerTag(BankView.LAYER, id -> layerView.contains(id, itemManager.canonicalize(id)));
 		for (Quest quest : Quest.values())
 		{
@@ -364,6 +381,7 @@ public class CodexBankStewardPlugin extends Plugin
 		clientToolbar.removeNavigation(navButton);
 		tagManager.unregisterTag(BankView.CLEAR_OUT);
 		tagManager.unregisterTag(BankView.TIDY);
+		tagManager.unregisterTag(BankView.ELSEWHERE);
 		tagManager.unregisterTag(BankView.LAYER);
 		clientThread.invokeLater(() ->
 		{
@@ -371,6 +389,7 @@ public class CodexBankStewardPlugin extends Plugin
 			closeView();
 			clearView = BankView.EMPTY;
 			tidyView = BankView.EMPTY;
+			elsewhereView = BankView.EMPTY;
 			layerView = BankView.EMPTY;
 			lastStrata = Strata.EMPTY;
 			save();
@@ -413,6 +432,27 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			log.warn("Could not read the Steward's quest and diary data", e);
 			return new Catalog(new Catalog.Data());
+		}
+	}
+
+	/** The bundled clue STASH units; none if the file cannot be read. */
+	private List<Elsewhere.Unit> loadStashUnits()
+	{
+		try (InputStream in = CodexBankStewardPlugin.class.getResourceAsStream(STASH_UNITS))
+		{
+			if (in == null)
+			{
+				throw new IOException("missing " + STASH_UNITS);
+			}
+			try (Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8))
+			{
+				return Elsewhere.units(gson.fromJson(reader, Elsewhere.UnitsData.class));
+			}
+		}
+		catch (IOException | JsonParseException e)
+		{
+			log.warn("Could not read the Steward's STASH unit data", e);
+			return Collections.emptyList();
 		}
 	}
 
@@ -491,6 +531,7 @@ public class CodexBankStewardPlugin extends Plugin
 		loadProfile();
 		done = new boolean[catalog.getTasks().size()];
 		ironman = false;
+		access = Elsewhere.Access.UNKNOWN;
 		progressRead = false;
 		held = Collections.emptySet();
 		heldCounts = Collections.emptyMap();
@@ -644,7 +685,8 @@ public class CodexBankStewardPlugin extends Plugin
 	/** Shows the bank filtered to one of the Steward's lists, or says in the chat box why it cannot. */
 	private void showInBank(String tag)
 	{
-		BankView view = BankView.TIDY.equals(tag) ? tidyView : BankView.LAYER.equals(tag) ? layerView : clearView;
+		BankView view = BankView.TIDY.equals(tag) ? tidyView : BankView.LAYER.equals(tag) ? layerView
+			: BankView.ELSEWHERE.equals(tag) ? elsewhereView : clearView;
 		// Bank Tags is on unless turned off, the way RuneLite itself decides it.
 		boolean tagsOn = !"false".equals(configManager.getConfiguration(RuneLiteConfig.GROUP_NAME, "banktagsplugin"));
 		BankView.Refusal refusal = view.refusal(bankOpen(), tagsOn);
@@ -839,6 +881,12 @@ public class CodexBankStewardPlugin extends Plugin
 			ironman = iron;
 			changed = true;
 		}
+		Elsewhere.Access now = readAccess();
+		if (!now.equals(access))
+		{
+			access = now;
+			changed = true;
+		}
 		for (int i = 0; i < tasks.size(); i++)
 		{
 			Task task = tasks.get(i);
@@ -859,6 +907,23 @@ public class CodexBankStewardPlugin extends Plugin
 			}
 		}
 		return changed;
+	}
+
+	/**
+	 * Reads which other stores the account can use: the members' world the leprechaun and seed vault
+	 * need, Farming for the guild, Construction for STASH units, and which units are built, the way
+	 * RuneLite's clue plugin asks the game. Client thread only.
+	 */
+	private Elsewhere.Access readAccess()
+	{
+		Map<Integer, Boolean> built = new HashMap<>();
+		for (Elsewhere.Unit unit : stashUnits)
+		{
+			client.runScript(ScriptID.WATSON_STASH_UNIT_CHECK, unit.getObjectId(), 0, 0, 0);
+			built.put(unit.getObjectId(), client.getIntStack()[0] == 1);
+		}
+		return new Elsewhere.Access(client.getWorldType().contains(WorldType.MEMBERS),
+			client.getRealSkillLevel(Skill.FARMING), client.getRealSkillLevel(Skill.CONSTRUCTION), built);
 	}
 
 	private void observeHeld()
@@ -990,6 +1055,7 @@ public class CodexBankStewardPlugin extends Plugin
 			keeping.remove(a.getItemId());
 		}
 		decants = Tidy.decants(keeping, names::get, id -> drinkable.getOrDefault(id, false));
+		elsewhere = config.betterElsewhere() ? elsewhere(keeping) : Collections.emptyList();
 		// Until this login's quest progress is read, every quest looks unfinished; the list in hand stands.
 		for (int id : memory.getPlaceholders().keySet())
 		{
@@ -1023,6 +1089,26 @@ public class CodexBankStewardPlugin extends Plugin
 			unsaved = true;
 			announceClearOut(session);
 		}
+	}
+
+	/** What in the bank, off the clear-out list, has a better home than the bank. */
+	private List<Elsewhere.Store> elsewhere(Map<Integer, Long> keeping)
+	{
+		Set<Integer> kits = plans.kitsByItem().keySet();
+		Set<Integer> stashHold = new HashSet<>(kits);
+		for (List<Advice> items : reckoning.getNeeded().values())
+		{
+			for (Advice a : items)
+			{
+				stashHold.add(a.getItemId());
+			}
+		}
+		List<Elsewhere.Store> stores = Elsewhere.plan(keeping, access, stashUnits, kits, stashHold);
+		for (int id : Elsewhere.items(stores))
+		{
+			describe(id);
+		}
+		return stores;
 	}
 
 	private void startClearOut()
@@ -1394,6 +1480,9 @@ public class CodexBankStewardPlugin extends Plugin
 		List<Shortfall.Goal> shownToGet = shown == null ? Collections.emptyList() : toGet;
 		BankView clearBefore = clearView;
 		BankView tidyBefore = tidyView;
+		BankView elsewhereBefore = elsewhereView;
+		List<Elsewhere.Store> shownElsewhere = shown == null ? Collections.emptyList() : elsewhere;
+		elsewhereView = BankView.elsewhere(Elsewhere.items(shownElsewhere));
 		clearView = BankView.clearOut(shownPlan, session, cleared, session == null ? null : ClearOut.leftOff(session, shown, cleared));
 		tidyView = BankView.tidy(releasable, shownDecants);
 		if (bankOpen())
@@ -1405,6 +1494,10 @@ public class CodexBankStewardPlugin extends Plugin
 			if (change == BankView.Change.NONE)
 			{
 				change = BankView.change(active, BankView.TIDY, tidyBefore, tidyView);
+			}
+			if (change == BankView.Change.NONE)
+			{
+				change = BankView.change(active, BankView.ELSEWHERE, elsewhereBefore, elsewhereView);
 			}
 			if (change == BankView.Change.CLOSE)
 			{
@@ -1437,7 +1530,8 @@ public class CodexBankStewardPlugin extends Plugin
 		String key = (shown == null ? "none" : String.valueOf(shown.fingerprint())) + "|" + strata.fingerprint() + "|" + shownDesign.fingerprint() + "|" + state + "|" + name + "|" + alch
 			+ "|" + ironman + "|" + toGetKey(shownToGet)
 			+ "|" + (shownPlan == null ? 0 : shownPlan.totalGain()) + "|" + (session == null ? -1 : session.getStarted() + ":" + session.getItems().size())
-			+ "|" + cleared + "|" + extrasKey(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal) + "|" + releasable;
+			+ "|" + cleared + "|" + extrasKey(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal) + "|" + releasable
+			+ "|" + Elsewhere.key(shownElsewhere);
 		if (key.equals(lastPublished))
 		{
 			return;
@@ -1448,7 +1542,8 @@ public class CodexBankStewardPlugin extends Plugin
 		{
 			StewardPanel.Clearing clearing = new StewardPanel.Clearing(shownPlan, session, cleared);
 			boolean iron = ironman;
-			StewardPanel.Extras extras = new StewardPanel.Extras(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal, strata, shownDesign);
+			StewardPanel.Extras extras = new StewardPanel.Extras(shownPlaceholders, keptPlaceholders, shownDecants, shownGoal, strata, shownDesign,
+				shownElsewhere);
 			SwingUtilities.invokeLater(() -> target.update(shown, clearing, shownToGet, shownNames, name, state, alch, iron, extras));
 		}
 	}

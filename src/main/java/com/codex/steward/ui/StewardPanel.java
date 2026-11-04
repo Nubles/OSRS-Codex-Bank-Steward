@@ -5,6 +5,7 @@ import com.codex.steward.core.Architect;
 import com.codex.steward.core.BankView;
 import com.codex.steward.core.ClearOut;
 import com.codex.steward.core.Memory;
+import com.codex.steward.core.Elsewhere;
 import com.codex.steward.core.Placeholders;
 import com.codex.steward.core.Reckoning;
 import com.codex.steward.core.SavingsGoal;
@@ -13,6 +14,7 @@ import com.codex.steward.core.Strata;
 import com.codex.steward.core.Tidy;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.util.ArrayList;
@@ -23,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.ScrollPaneConstants;
@@ -115,6 +118,7 @@ public class StewardPanel extends PluginPanel
 		final SavingsGoal goal;
 		final Strata strata;
 		final Architect.Design design;
+		final List<Elsewhere.Store> elsewhere;
 
 		/**
 		 * @param placeholders empty placeholders worth releasing
@@ -138,6 +142,14 @@ public class StewardPanel extends PluginPanel
 		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal,
 			Strata strata, Architect.Design design)
 		{
+			this(placeholders, keptPlaceholders, decants, goal, strata, design, null);
+		}
+
+		/** @param elsewhere what in the bank has a better home: the leprechaun, the seed vault, a STASH unit */
+		public Extras(List<Placeholders.Line> placeholders, List<Integer> keptPlaceholders, List<Tidy.Decant> decants, SavingsGoal goal,
+			Strata strata, Architect.Design design, List<Elsewhere.Store> elsewhere)
+		{
+			this.elsewhere = elsewhere == null ? Collections.emptyList() : elsewhere;
 			this.design = design == null ? Architect.Design.EMPTY : design;
 			this.placeholders = placeholders == null ? Collections.emptyList() : placeholders;
 			this.keptPlaceholders = keptPlaceholders == null ? Collections.emptyList() : keptPlaceholders;
@@ -397,6 +409,7 @@ public class StewardPanel extends PluginPanel
 		if (clearing.session == null)
 		{
 			tidy(stack);
+			elsewhere(stack);
 		}
 		if (!spared.isEmpty())
 		{
@@ -482,6 +495,100 @@ public class StewardPanel extends PluginPanel
 		{
 			stack.add(ClearOutCard.buttons(new CodexButton("Show in bank", false, () -> actions.showInBank(BankView.TIDY))));
 		}
+	}
+
+	/** Stores a page shows in full before the rest are counted. */
+	private static final int STORES = 4;
+	/** Items a store shows before the rest are counted. */
+	private static final int STORE_ROWS = 6;
+
+	/**
+	 * Slots won back by keeping things where the game has a home for them: farming tools with the
+	 * leprechaun, seeds in the vault, a clue's gear in its built STASH unit. A unit the player could
+	 * build comes last, with what building it takes.
+	 */
+	private void elsewhere(StackPanel stack)
+	{
+		List<Elsewhere.Store> stores = extras.elsewhere;
+		if (stores.isEmpty())
+		{
+			return;
+		}
+		int slots = Elsewhere.freed(stores);
+		stack.add(new SectionHeader("Better kept elsewhere", slots > 0 ? slotCount(slots) : null));
+		int shown = 0;
+		int hiddenStores = 0;
+		int hiddenSlots = 0;
+		for (Elsewhere.Store store : stores)
+		{
+			if (shown >= STORES)
+			{
+				hiddenStores++;
+				hiddenSlots += store.isToBuild() ? 0 : store.getFreed();
+				continue;
+			}
+			shown++;
+			stack.add(storeCard(store));
+		}
+		StringBuilder how = new StringBuilder();
+		if (hiddenStores > 0)
+		{
+			how.append("And ").append(hiddenStores).append(hiddenStores == 1 ? " more store" : " more stores")
+				.append(hiddenSlots > 0 ? ", " + slotCount(hiddenSlots) : "").append(". ");
+		}
+		how.append("The Steward cannot see inside a store, so a full leprechaun or a stocked STASH unit is for you to know.");
+		stack.add(Ui.wrapped(how.toString(), Theme.small(), Theme.TEXT_FAINT, WIDTH - 20));
+		if (actions != null)
+		{
+			stack.add(ClearOutCard.buttons(new CodexButton("Show in bank", false, () -> actions.showInBank(BankView.ELSEWHERE))));
+		}
+	}
+
+	/** One store: its name, where it is, and each item to take there. */
+	private Card storeCard(Elsewhere.Store store)
+	{
+		Color accent = store.isToBuild() ? Theme.TEXT_MUTED : store.getKind() == Elsewhere.Kind.STASH ? Theme.GOLD : Theme.TEAL;
+		Card card = new Card(new BorderLayout(0, 4));
+		card.accent(accent);
+		JPanel head = new JPanel(new BorderLayout(6, 0));
+		head.setOpaque(false);
+		int freed = store.getFreed();
+		JLabel slots = Ui.label(store.isToBuild() ? "+" + slotCount(freed) : slotCount(freed), Theme.small(),
+			store.isToBuild() ? Theme.TEXT_FAINT : accent);
+		slots.setVerticalAlignment(JLabel.TOP);
+		// A STASH unit's place can be long: it wraps rather than being cut short.
+		head.add(Ui.wrapped(store.getName(), Theme.body(), store.isToBuild() ? Theme.TEXT : Theme.GOLD,
+			WIDTH - 40 - slots.getPreferredSize().width), BorderLayout.CENTER);
+		head.add(slots, BorderLayout.EAST);
+		JPanel top = new JPanel(new BorderLayout(0, 2));
+		top.setOpaque(false);
+		top.add(head, BorderLayout.NORTH);
+		top.add(Ui.wrapped(store.getWhere(), Theme.small(), Theme.TEXT_MUTED, WIDTH - 30), BorderLayout.CENTER);
+		card.add(top, BorderLayout.NORTH);
+		JPanel rows = new JPanel(new GridLayout(0, 1, 0, 1));
+		rows.setOpaque(false);
+		List<Elsewhere.Move> moves = store.getMoves();
+		for (int i = 0; i < moves.size() && i < STORE_ROWS; i++)
+		{
+			Elsewhere.Move m = moves.get(i);
+			Advice a = new Advice(m.getItemId(), m.getQuantity(), 0, true, Advice.Verdict.DUST, null, 0);
+			String note = m.freesSlot() ? (m.getQuantity() > 1 ? "The whole stack" : "Your only one")
+				: m.getQuantity() + " of your " + Format.quantity(m.getHeld()) + ", for the set";
+			// The card's corner gives the slots: the row keeps its width for the item's name.
+			AdviceRow row = new AdviceRow(a, name(m.getItemId()), note, null, icons, null, null, alch)
+				.accent(accent).amount("");
+			if (store.isToBuild())
+			{
+				row.ghost();
+			}
+			rows.add(row);
+		}
+		card.add(rows, BorderLayout.CENTER);
+		if (moves.size() > STORE_ROWS)
+		{
+			card.add(Ui.label("and " + (moves.size() - STORE_ROWS) + " more", Theme.small(), Theme.TEXT_FAINT), BorderLayout.SOUTH);
+		}
+		return card;
 	}
 
 	private static String slotCount(int n)
