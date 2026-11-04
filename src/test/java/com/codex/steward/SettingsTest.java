@@ -114,7 +114,7 @@ public class SettingsTest
 				keys.add(item.keyName());
 			}
 		}
-		for (String key : new String[]{"bankMarks", "bankSummary", "betterElsewhere", "codexPlans", "dustDays", "graceDays", "guardStash", "shareBank", "untradeableDust", "valueBy"})
+		for (String key : new String[]{"bankMarks", "bankSummary", "betterElsewhere", "codexPlans", "dustDays", "graceDays", "guardStash", "prayerMethod", "shareBank", "untradeableDust", "valueBy"})
 		{
 			assertTrue(key, keys.contains(key));
 		}

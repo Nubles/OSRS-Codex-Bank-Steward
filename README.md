@@ -45,6 +45,12 @@ You never have to drag them. **Copy for Bank Tags** puts the shown tab on the cl
   <img src="docs/screenshots/design-supplies.png" width="225" alt="Design: the Supplies tab">
 </p>
 
+**Banked.** What your bank, pack and worn items would give if you processed them, skill by skill: Prayer, Herblore, Cooking, Fletching, Firemaking, Crafting, Smithing and Construction. A ledger at the top shows each skill's level now and the level the bank takes it to. Each skill then gets a card listing its herbs, fish, logs, gems, hides, ore, bars, planks, bones or ashes. Each one shows the best recipe your level allows and the experience it holds. Secondaries count only when you own them: ranarr weed becomes prayer potions only while your snape grass and vials of water last. When something runs short, the card says how many more you need and what they would add. It also names the next recipe a level opens, and gives the time at the OSRS Wiki's typical rate for that method, or says when the wiki gives no rate. Bones show all four places side by side (buried, the gilded altar, the Ectofuntus with its pots and slime, and the Wilderness chaos altar), and **Offer bones at** picks which one counts.
+
+<p align="center">
+  <img src="docs/screenshots/banked.png" width="225" alt="Banked: the experience your bank holds">
+</p>
+
 **Bank marks and summary.** In the bank, done-with items carry a small gold diamond and dusty items a ring. The first time you open your bank each login, a chat line says what the list could free.
 
 Nothing is ever sold, dropped or withdrawn for you. The Steward only advises.
@@ -56,6 +62,7 @@ Nothing is ever sold, dropped or withdrawn for you. The Steward only advises.
 - **Value items at** (Auto): Grand Exchange prices, or high alchemy; Auto uses high alchemy on ironman accounts.
 - **Guard clue STASH gear** (on): gear a STASH unit wants is never called done with.
 - **Suggest other stores** (on): list what the Tool Leprechaun, the seed vault or a built STASH unit could hold instead.
+- **Offer bones at** (Gilded altar): where the Banked page counts your bones going.
 - **Show untradeable dust** (off): also list dusty untradeable items, apart and with a warning.
 - **Mark items in the bank** and **Summary at the bank** (both on).
 - **Keep kit and goal items** (on) and **Share bank with Codex** (on): see below.
