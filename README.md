@@ -98,6 +98,10 @@ The shape only grows; a breaking change would get a new key. It is written a mom
 
 Codex Bank Steward only reads what the game already shows you: your bank, inventory and worn items, quest and diary progress, and RuneLite's own item prices, plus what the Codex plugins above save in your RuneLite profile. The only thing it writes beyond its own memory is the shared bank, in its own config group. Show in bank only filters what the bank window displays, through RuneLite's own Bank Tags plugin, as a tag tab would. The Design page only puts text on your clipboard when you press its button; you import it into Bank Tags yourself. It does not click, change menus, or send anything over the network.
 
+## Field notes
+
+An optional setting, **Keep field notes** (under Field notes, off by default), writes a plain record of what Bank Steward reads and decides to its own folder in `.runelite/plugin-data` on your computer, one line at a time. It is for checking the plugin's guesses against real play: when something looks wrong, the notes show what it saw and why it chose what it did. Other players' chat is never written down, it stays on your computer, and nothing is sent anywhere.
+
 ## Development
 
 ```bash
